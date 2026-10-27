@@ -64,8 +64,11 @@ pace                     # interactive terminal menu
 pace ui --compact        # small-screen layout
 ```
 
-Have a release binary already? Put it on PATH and pass
-`--config /absolute/path/config.toml`; neither Rust nor mise is needed at runtime.
+Prefer not to build? [GitHub Releases](https://github.com/tysee/garmin-pace/releases)
+carry installer archives for Linux aarch64 and x86_64 (see
+[deployment](docs/deployment.md#raspberry-pi)). Have a release binary already? Put
+it on PATH and pass `--config /absolute/path/config.toml`; neither Rust nor mise is
+needed at runtime.
 Follow [first-time setup](docs/getting-started.md) or the
 [Podman workflow](docs/deployment.md#podman-development).
 
@@ -142,34 +145,11 @@ Coach, workouts, benchmarks, MCP access, deployment and upgrades.
 
 ## Contributing
 
-Maintainers use [mise](https://mise.jdx.dev/) for the pinned development tools and
-tasks in [mise.toml](mise.toml). It is a development convenience, not a Pace runtime
-requirement. With those tools already installed, `mise trust` and `mise run build`
-build the debug binary; `mise exec -- pace ...` supplies its PATH and configuration.
-The [Podman and installer packaging commands](docs/deployment.md) also use this
-maintainer environment. Install missing tools only as an explicit setup step.
-
-Bug reports, documentation fixes and focused pull requests are welcome via
-[GitHub Issues](https://github.com/tysee/garmin-pace/issues). For a bug, include
-the Pace version, OS and architecture, the command, expected and actual behavior,
-and sanitized output. Discuss larger changes first.
-
-Before opening a pull request:
-
-1. Read [AGENTS.md](AGENTS.md) for architecture and conventions.
-2. Keep the change focused, update the affected docs and add regression tests with
-   synthetic fixtures.
-3. Run `mise run check` (rustfmt, cargo check, clippy with warnings denied, tests).
-   Runtime changes also need a CLI/MCP process check and a Podman smoke test.
-4. Never commit `.env`, local config, SQLite files, tokens or real Garmin data.
-
-Tests use real temporary SQLite databases and run the CLI and MCP flows against
-local Garmin fixtures; no Garmin account is needed. The code is organized by
-feature: `history`, `health`, `workouts` and `access` own their logic and storage;
-`garmin` adapts the external APIs; `interface` owns CLI, MCP, HTTP and the terminal.
-
-For a suspected vulnerability, use GitHub's private vulnerability reporting or
-contact the [maintainer](https://github.com/tysee) privately.
+Bug reports, documentation fixes and focused pull requests are welcome. Read the
+[contributing guide](CONTRIBUTING.md) for the development environment, checks and
+pull request expectations, and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report suspected vulnerabilities privately as described in the
+[security policy](SECURITY.md).
 
 ## License
 

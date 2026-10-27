@@ -1,0 +1,74 @@
+# .github/workflows/release.yml builds the Linux installer archives for aarch64 and x86_64 on
+# native runners with the same deploy/ scripts maintainers run locally, and publishes them as
+# GitHub Release assets when a v* tag is pushed. The tag must point at a commit on main and
+# equal the crate version; nothing else triggers a build.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+          - arch: x86_64
+            runner: ubuntu-24.04
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check that the tag is on main and matches the crate version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main || { echo "Tag $TAG is not on main; release tags are created from main only" >&2; exit 1; }
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          [[ "$TAG" == "v$version" ]] || { echo "Tag $TAG does not match Cargo.toml version $version" >&2; exit 1; }
+      - name: Fetch pinned Caddy
+        run: bash deploy/fetch-caddy.sh "$ARCH"
+      - name: Package installer archive
+        run: bash deploy/package.sh "$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pace-linux-${{ matrix.arch }}
+          path: |
+            dist/pace-linux-${{ matrix.arch }}.tar.gz
+            dist/pace-linux-${{ matrix.arch }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify archive checksums
+        working-directory: dist
+        run: sha256sum --check pace-linux-aarch64.tar.gz.sha256 pace-linux-x86_64.tar.gz.sha256
+      - name: Create the release with both archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes \
+            dist/pace-linux-aarch64.tar.gz dist/pace-linux-aarch64.tar.gz.sha256 \
+            dist/pace-linux-x86_64.tar.gz dist/pace-linux-x86_64.tar.gz.sha256

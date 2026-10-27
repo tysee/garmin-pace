@@ -3,6 +3,10 @@
 
 use std::path::PathBuf;
 
+/// Longest accepted key lifetime, 100 years: a key issued for this many days never
+/// expires in practice while the registry still records a definite expiry.
+pub const MAX_KEY_LIFETIME_DAYS: u32 = 36_500;
+
 /// An administrator-registered profile; paths are canonical and unique per user.
 #[derive(Clone, Debug)]
 pub struct User {
@@ -40,7 +44,7 @@ pub enum AccessError {
     Conflict,
     #[error("unknown user or key")]
     NotFound,
-    #[error("key lifetime must be 1..=365 days")]
+    #[error("key lifetime must be 1..=36500 days (100 years)")]
     InvalidLifetime,
     #[error("access registry unavailable")]
     Storage(#[source] Box<dyn std::error::Error + Send + Sync>),

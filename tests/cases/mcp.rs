@@ -274,6 +274,33 @@ pub(super) fn rpc(client: &Client, base: &str, token: &str, payload: Value) -> R
 }
 
 #[test]
+fn key_lifetime_accepts_the_hundred_year_bound_and_rejects_longer() -> Result<()> {
+    let server = Fixture::new()?;
+    let alice = Fixture::new()?;
+    alice.init()?;
+    let (_, _) = register_user(&server, &alice, "alice")?;
+    let issue = |days: &str| -> Result<std::process::Output> {
+        let path = server.directory.path().join(format!("alice-{days}.key"));
+        Ok(server
+            .command()
+            .args(["users", "issue-key", "alice", "--days", days, "--output"])
+            .arg(&path)
+            .output()?)
+    };
+    let permanent = issue("36500")?;
+    assert!(permanent.status.success());
+    let metadata: Value = serde_json::from_slice(&permanent.stdout)?;
+    let now = chrono::Utc::now().timestamp();
+    let expires = metadata["expires_at_unix"].as_i64().context("expiry")?;
+    assert!(expires > now + 99 * 365 * 86400);
+    let too_long = issue("36501")?;
+    assert!(!too_long.status.success());
+    assert!(String::from_utf8_lossy(&too_long.stderr).contains("36500"));
+    assert!(!server.directory.path().join("alice-36501.key").exists());
+    Ok(())
+}
+
+#[test]
 fn users_are_isolated_and_revocation_applies_without_restart() -> Result<()> {
     let server = Fixture::new()?;
     let alice = Fixture::new()?;

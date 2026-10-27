@@ -1,6 +1,7 @@
-# Containerfile builds the normal Linux executable for local Podman development.
-# The runtime contains only the binary and non-secret configuration.
-FROM docker.io/library/rust:1.99.1-bookworm@sha256:32f7944ed00949c44d3944a0a852b3e5ea862a610a38b43ac92a33aa87256b75 AS build
+# Containerfile builds the normal Linux executable for local Podman development and for the
+# aarch64/x86_64 installer archives. The runtime contains only the binary and non-secret configuration.
+# Base images are pinned to multi-arch manifest indexes so --platform selects the matching layers.
+FROM docker.io/library/rust:1.99.1-bookworm@sha256:48b7f435b8fc6378ce43b44f15e3a47fd8919b2825f835c39bd4bd3da50af5b8 AS build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
@@ -10,7 +11,7 @@ COPY deploy/Caddyfile ./deploy/Caddyfile
 RUN --mount=type=cache,id=garmin-pace-registry,target=/usr/local/cargo/registry \
     mkdir -p /data /out && chmod 700 /data && cargo build --release --locked --bin pace && cp target/release/pace /out/pace
 
-FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9ae6393649d0c55122c66fe6d4803b0d85b2d7b60b2b09b690ce80c086f40a83
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 WORKDIR /app
 COPY --from=build /out/pace /app/pace
 COPY config.container.toml /app/config.toml

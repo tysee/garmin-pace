@@ -49,6 +49,10 @@ fn onboarding_prepares_profile_and_issues_private_access_key() -> Result<()> {
     session.until("× alice")?;
     session.until("no active key")?;
     session.send(b"\r")?;
+    session.until("Key lifetime")?;
+    session.until("> 30 days")?;
+    session.send(b"\r")?;
+    session.until("Lifetime: 30 days")?;
     session.until("Issue a new key for alice?")?;
     session.send(b"\r")?;
     session.until("> Cancel")?;

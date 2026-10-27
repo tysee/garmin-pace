@@ -221,15 +221,19 @@ pub(super) struct RevealedKey {
     pub token: String,
 }
 
-/// Register a new key and return its value instead of writing a delivery file.
-pub(super) fn issue_revealed_key(settings: &Settings, user: &str) -> Result<RevealedKey> {
+/// Register a new key for the chosen lifetime and return its value instead of writing a delivery file.
+pub(super) fn issue_revealed_key(
+    settings: &Settings,
+    user: &str,
+    days: u32,
+) -> Result<RevealedKey> {
     let key = NewKey::generate()?;
     let expires = service(settings)?.issue(
         user,
         &key.id,
         &key.digest,
         chrono::Utc::now().timestamp(),
-        settings.access.key_lifetime_days,
+        days,
     )?;
     Ok(RevealedKey {
         id: key.id.clone(),

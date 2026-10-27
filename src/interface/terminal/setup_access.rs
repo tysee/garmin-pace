@@ -5,10 +5,10 @@
 use super::{
     App, capture,
     setup_status::Mark,
-    view::{Choice, Column, Selection, Width},
+    view::{Choice, Column, Selection, View, Width},
 };
 use crate::{
-    access::KeyInfo,
+    access::{KeyInfo, MAX_KEY_LIFETIME_DAYS},
     config::Settings,
     interface::{
         cli::Command,
@@ -28,6 +28,46 @@ const KEYS: &[Column] = &[
     Column::new("State", Width::Fit(7)),
     Column::new("Expires", Width::Fit(10)),
 ];
+
+/// Key lifetimes offered when a key is issued; Enter keeps the historical 30 days and the
+/// last preset is the registry's 100-year bound, which never expires in practice.
+pub(super) struct KeyLifetime {
+    pub days: u32,
+    pub label: &'static str,
+}
+const KEY_LIFETIMES: [KeyLifetime; 3] = [
+    KeyLifetime {
+        days: 30,
+        label: "30 days",
+    },
+    KeyLifetime {
+        days: 180,
+        label: "6 months",
+    },
+    KeyLifetime {
+        days: MAX_KEY_LIFETIME_DAYS,
+        label: "no expiry (100 years)",
+    },
+];
+
+/// Ask how long a new key for `user` stays valid; Esc returns None.
+pub(super) fn choose_key_lifetime(
+    view: &mut View,
+    user: &str,
+) -> Result<Option<&'static KeyLifetime>> {
+    let choices: Vec<_> = KEY_LIFETIMES
+        .iter()
+        .map(|lifetime| {
+            Choice::new(
+                lifetime.label,
+                format!("New key for {user} stays valid for {}", lifetime.label),
+            )
+        })
+        .collect();
+    Ok(view
+        .select("Key lifetime", &choices, &mut Selection::default(), false)?
+        .map(|index| &KEY_LIFETIMES[index]))
+}
 
 fn date(timestamp: i64) -> String {
     chrono::DateTime::from_timestamp(timestamp, 0).map_or_else(
@@ -145,9 +185,12 @@ impl App {
             return Ok(());
         };
         let name = entries[index].user.name.clone();
+        let Some(lifetime) = choose_key_lifetime(&mut self.view, &name)? else {
+            return Ok(());
+        };
         let details = format!(
-            "User: {name}\nThe new key expires in {} days. It is shown once on the next screen and saved nowhere; Pace keeps only its hash. Existing keys stay valid until they expire or are revoked.",
-            settings.access.key_lifetime_days
+            "User: {name}\nLifetime: {}. The key is shown once on the next screen and saved nowhere; Pace keeps only its hash. Existing keys stay valid until they expire or are revoked.",
+            lifetime.label
         );
         if !self.confirm(
             "Issue access key",
@@ -156,7 +199,7 @@ impl App {
         )? {
             return Ok(());
         }
-        let key = users::issue_revealed_key(&settings, &name)?;
+        let key = users::issue_revealed_key(&settings, &name, lifetime.days)?;
         let text = format!(
             "New MCP key for {name}. Copy it now: it is shown only once.\n\n{}\n\nKey ID: {}\nExpires: {}\n\nSet it in the client as the header Authorization: Bearer <key>. Never put it in a URL. If it is lost, issue a new key and revoke this one: pace users revoke-key {}",
             key.token,
@@ -278,10 +321,9 @@ impl App {
     pub(super) fn connection_details(&mut self, server: &Path) -> Result<()> {
         let settings = Settings::load(server)?;
         let text = format!(
-            "Server config: {}\nHTTP listener: {}\nMCP path: /api/v1/mcp\nHealth path: /api/v1/health (also requires the key)\n\nClient: use Streamable HTTP and Authorization: Bearer <key from step 8>. The client must support manual Bearer headers. OAuth-only clients are not supported.\nUse the listener address locally; wildcard bind addresses are not client destinations. For Internet access use https://YOUR_DOMAIN/api/v1/mcp through a TLS proxy.\n\nNew keys expire after {} days. Rotate by issuing a replacement and revoking the old key ID with users revoke-key KEY_ID. users disable USER blocks all of that user's keys.\n\nStart MCP runs in the foreground until Ctrl-C. For continuous Linux operation, use deploy/garmin-pace.service and deploy/config.toml under a dedicated OS account, plus an existing HTTPS proxy (deploy/Caddyfile). Enable the service after local provisioning and check its journal. Keep port 8080 private.\n\nThe wizard does not install services or TLS. Synchronization remains explicit; MCP serves saved data. Read README: Access administration and continuous deployment.",
+            "Server config: {}\nHTTP listener: {}\nMCP path: /api/v1/mcp\nHealth path: /api/v1/health (also requires the key)\n\nClient: use Streamable HTTP and Authorization: Bearer <key from step 8>. The client must support manual Bearer headers. OAuth-only clients are not supported.\nUse the listener address locally; wildcard bind addresses are not client destinations. For Internet access use https://YOUR_DOMAIN/api/v1/mcp through a TLS proxy.\n\nEach key's lifetime is chosen when it is issued: 30 days, 6 months or no expiry (100 years). Rotate by issuing a replacement and revoking the old key ID with users revoke-key KEY_ID. users disable USER blocks all of that user's keys.\n\nStart MCP runs in the foreground until Ctrl-C. For continuous Linux operation, use deploy/garmin-pace.service and deploy/config.toml under a dedicated OS account, plus an existing HTTPS proxy (deploy/Caddyfile). Enable the service after local provisioning and check its journal. Keep port 8080 private.\n\nThe wizard does not install services or TLS. Synchronization remains explicit; MCP serves saved data. Read README: Access administration and continuous deployment.",
             server.display(),
-            settings.http.bind,
-            settings.access.key_lifetime_days
+            settings.http.bind
         );
         self.view.result("Connection details", &text)?;
         Ok(())

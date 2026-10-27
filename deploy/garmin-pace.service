@@ -1,5 +1,5 @@
 # deploy/garmin-pace.service supervises the Linux MCP process under a dedicated OS user.
-# Install the binary/config and initialize the registry as that user before enabling this unit.
+# install.sh places the binary under /usr/local/lib/garmin-pace and the pace launcher on PATH.
 [Unit]
 Description=Garmin Pace authenticated MCP
 After=network.target
@@ -10,7 +10,7 @@ StartLimitBurst=5
 Type=simple
 User=garmin-pace
 Group=garmin-pace
-ExecStart=/usr/local/bin/pace --config /etc/garmin-pace/config.toml serve --transport http
+ExecStart=/usr/local/lib/garmin-pace/pace --config /etc/garmin-pace/config.toml serve --transport http
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=35

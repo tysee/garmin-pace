@@ -1,0 +1,10 @@
+# .github/ISSUE_TEMPLATE/config.yml configures the GitHub issue chooser: issues go through the
+# forms, and vulnerability reports are routed to private reporting instead of a public issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/tysee/garmin-pace/security/advisories/new
+    about: Report vulnerabilities privately, never in a public issue.
+  - name: Usage guides
+    url: https://github.com/tysee/garmin-pace/blob/main/docs/README.md
+    about: Setup, CLI, Coach, workouts, MCP access and deployment.

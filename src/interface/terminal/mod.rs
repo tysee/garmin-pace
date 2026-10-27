@@ -25,7 +25,7 @@ mod tty;
 mod view;
 mod workouts;
 
-pub(super) use quick_setup::quick_setup;
+pub(super) use quick_setup::{quick_setup, quick_setup_batch};
 
 use actions::{ACTIONS, Action};
 use anyhow::{Result, ensure};

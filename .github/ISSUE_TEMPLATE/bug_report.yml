@@ -1,0 +1,62 @@
+# .github/ISSUE_TEMPLATE/bug_report.yml is the GitHub issue form for bug reports. It asks for
+# the version, platform, command and sanitized output the contributing guide requires, and
+# reminds reporters to keep credentials and health data out of public issues.
+name: Bug report
+description: Something in Pace does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove tokens, access keys, Garmin account details and personal health data
+        before posting. Report vulnerabilities privately per [SECURITY.md](https://github.com/tysee/garmin-pace/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Pace version
+      description: Output of `pace --version`, or the commit hash for a source build.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: e.g. Raspberry Pi OS Bookworm, aarch64
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - CLI command
+        - Terminal menu
+        - MCP over stdio
+        - MCP over HTTP
+        - Installer or HTTPS proxy
+        - Podman development container
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or steps
+      description: The exact command, menu path or MCP tool call that triggers the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized output
+      render: text
+    validations:
+      required: true

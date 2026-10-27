@@ -2,10 +2,6 @@
 rust = "1.99.1"
 podman = "6.1.3"
 
-[vars]
-caddy_version = "2.11.7"
-caddy_linux_arm64_sha256 = "d8fc6d179a5d283028a472a5618564f6ad8a86fed513e64f032b3b0b7cc45e42"
-
 [env]
 _.path = ["{{config_root}}/target/debug"]
 GARMIN_PACE_CONFIG = "{{config_root}}/config.toml"
@@ -56,12 +52,11 @@ description = "Export the Linux ARM64 executable from the running development co
 run = "mkdir -p dist && podman cp garmin-pace-dev:/app/pace dist/pace-linux-aarch64"
 
 [tasks."installer:package"]
-env.PACE_CADDY_VERSION = "{{vars.caddy_version}}"
-description = "Package the Linux ARM64 executable and interactive Raspberry Pi installer"
-run = "bash deploy/package.sh"
+description = "Package the Linux executable and interactive installer for one architecture"
+usage = 'arg "<arch>" help="aarch64 or x86_64"'
+run = 'bash deploy/package.sh "$usage_arch"'
 
 [tasks."installer:fetch-https"]
-description = "Explicitly download pinned Caddy ARM64 for the HTTPS installer archive"
-env.PACE_CADDY_VERSION = "{{vars.caddy_version}}"
-env.PACE_CADDY_SHA256 = "{{vars.caddy_linux_arm64_sha256}}"
-run = "bash deploy/fetch-caddy.sh"
+description = "Explicitly download pinned Caddy (deploy/release.conf) for one architecture"
+usage = 'arg "<arch>" help="aarch64 or x86_64"'
+run = 'bash deploy/fetch-caddy.sh "$usage_arch"'

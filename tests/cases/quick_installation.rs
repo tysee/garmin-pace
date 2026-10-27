@@ -58,9 +58,96 @@ fn skip_garmin(session: &mut Session) -> Result<()> {
     session.send(b"\r")?;
     session.until("Connect Garmin now")?;
     session.send(b"\x1b[B\r")?;
+    session.until("Key lifetime")?;
+    session.send(b"\x1b[B\x1b[B\r")?;
     session.until("Profile configured")?;
+    session.until("Lifetime: no expiry (100 years)")?;
     session.send(b"\r")?;
     finish(session, true)
+}
+
+#[test]
+fn batch_setup_provisions_profile_key_and_receipt_without_a_terminal() -> Result<()> {
+    let server = Fixture::new()?;
+    let profile = Fixture::new()?;
+    fs::set_permissions(profile.directory.path(), fs::Permissions::from_mode(0o700))?;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    drop(listener);
+    fs::write(
+        &server.config,
+        fs::read_to_string(&server.config)?.replace("127.0.0.1:8080", &address.to_string()),
+    )?;
+    let handoff = profile.directory.path().join("handoff.key");
+    fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&handoff)?;
+    let output = profile
+        .command()
+        .args([
+            "setup",
+            "--quick",
+            "--batch",
+            "--user",
+            "owner",
+            "--key-days",
+            "36500",
+        ])
+        .arg("--server-config")
+        .arg(&server.config)
+        .arg("--key-handoff")
+        .arg(&handoff)
+        .stdin(Stdio::null())
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout)?;
+    let summary: serde_json::Value = serde_json::from_str(&stdout)?;
+    assert_eq!(summary["user"], "owner");
+    assert_eq!(summary["key_id"].as_str().context("key id")?.len(), 32);
+    let expires = summary["expires_at_unix"].as_i64().context("expiry")?;
+    assert!(expires > chrono::Utc::now().timestamp() + 99 * 365 * 86400);
+    let token = fs::read_to_string(&handoff)?;
+    assert_eq!(token.len(), 49);
+    assert!(!stdout.contains(token.trim()));
+    assert_eq!(fs::metadata(&handoff)?.permissions().mode() & 0o077, 0);
+    assert!(profile.directory.path().join("installation.json").exists());
+    assert!(profile.config.exists());
+    let missing_days = profile
+        .command()
+        .args(["setup", "--quick", "--batch", "--user", "owner"])
+        .arg("--server-config")
+        .arg(&server.config)
+        .stdin(Stdio::null())
+        .output()?;
+    assert!(!missing_days.status.success());
+    let service = Process(Some(
+        server
+            .command()
+            .args(["serve", "--transport", "http"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()?,
+    ));
+    let check = server
+        .command()
+        .arg("installation-check")
+        .arg("--profile")
+        .arg(&profile.config)
+        .output()?;
+    ensure!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let logs = String::from_utf8(service.stop()?.stderr)?;
+    assert!(!logs.contains("\"level\":\"ERROR\""), "{logs}");
+    Ok(())
 }
 
 #[test]
@@ -263,7 +350,10 @@ fn quick_setup_checks_garmin_and_downloads_without_requesting_paths() -> Result<
     session.send(b"\r")?;
     session.until("Sign in to Garmin")?;
     session.send(b"\x1b[B\r")?;
+    session.until("Key lifetime")?;
+    session.send(b"\r")?;
     session.until("Profile configured")?;
+    session.until("Lifetime: 30 days")?;
     session.send(b"\r")?;
     finish(&mut session, true)?;
     garmin.finish()?;

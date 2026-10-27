@@ -136,8 +136,10 @@ pace --config /path/to/server/config.toml users add alice \
 ```
 
 Every request maps its key to one registered profile; there is no default user.
-The registry stores key hashes, expiry and revocation. Keys last 30 days by default
-(`--days 1..365`). Inspect with `users keys USER`, revoke with
+The registry stores key hashes, expiry and revocation. The menu and the installer
+ask for the lifetime of each new key: 30 days, 6 months or no expiry, which is
+recorded as 100 years. The CLI defaults to `key_lifetime_days` from the
+configuration (30 days) and accepts `--days 1..36500`. Inspect with `users keys USER`, revoke with
 `users revoke-key KEY_ID`, suspend with `users disable USER`; let a user's assistant
 write to Garmin with `users allow-garmin-writes USER` and take it back with
 `users deny-garmin-writes USER`; changes apply on the next request. There is no OAuth: clients must support a configured Bearer header.

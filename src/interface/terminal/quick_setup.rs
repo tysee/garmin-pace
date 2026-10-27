@@ -1,5 +1,6 @@
 //! src/interface/terminal/quick_setup.rs runs the installer's sequential, path-free setup.
-//! It composes profile initialization, optional Garmin imports and per-user key issuance.
+//! It composes profile initialization, optional Garmin imports and per-user key issuance; the
+//! batch entry point provisions the same profile, key and receipt without a terminal.
 
 use super::{
     App, BoundedOutput,
@@ -51,6 +52,41 @@ pub(in crate::interface) fn quick_setup(
     }
 }
 
+/// Provision the profile, registry, key and receipt without a terminal, for non-interactive
+/// installers; Garmin credentials and imports stay later menu or CLI steps.
+pub(in crate::interface) fn quick_setup_batch(
+    config: PathBuf,
+    user: String,
+    server: PathBuf,
+    handoff: Option<PathBuf>,
+    key_days: u32,
+    json: bool,
+) -> Result<()> {
+    validate_name(&user)?;
+    crate::installation::validate_listener(&Settings::load(&server)?)?;
+    let directory = prepare_install_profile(&config)?;
+    let issued = provision_access(
+        &config,
+        &user,
+        &server,
+        &directory,
+        handoff.as_deref(),
+        key_days,
+    )?;
+    let mut stdout = io::stdout();
+    Output {
+        json,
+        writer: &mut stdout,
+    }
+    .message(
+        &serde_json::json!({"user":user,"key_id":issued.id,"expires_at_unix":issued.expires}),
+        &format!(
+            "Profile {user} prepared.\nKey ID: {}\nKey expires at Unix time: {}\nThe key itself is never displayed.",
+            issued.id, issued.expires
+        ),
+    )
+}
+
 impl App {
     fn install_profile(&mut self, user: &str, server: &Path, handoff: Option<&Path>) -> Result<()> {
         self.view.context = format!("Profile: {user} | Installation wizard");
@@ -60,10 +96,12 @@ impl App {
             &[("Preparing private storage...".into(), Style::Plain)],
             "Step 1 of 4",
         )?;
-        let directory = self.prepare_install_profile()?;
+        let directory = prepare_install_profile(&self.config)?;
         let settings = Settings::load(&self.config)?;
         self.quick_garmin(&settings)?;
         self.quick_imports()?;
+        let lifetime = super::setup_access::choose_key_lifetime(&mut self.view, user)?
+            .context("setup cancelled")?;
         self.view.frame(
             "MCP access",
             &[(
@@ -72,58 +110,16 @@ impl App {
             )],
             "Step 4 of 4",
         )?;
-        let key_id = self.provision_access(user, server, &directory, handoff)?;
-        ensure!(self.view.result("Profile configured", &format!("Your profile and private MCP key are ready.\n\nKey ID: {}\nThe key itself is never displayed.\n\nPress Enter to let the installer start and verify the service, then deliver your connection file. The installer can configure Internet HTTPS next.", key_id))?, "setup cancelled before service startup");
-        Ok(())
-    }
-
-    fn prepare_install_profile(&self) -> Result<PathBuf> {
-        let directory = self
-            .config
-            .parent()
-            .context("profile directory required")?
-            .to_path_buf();
-        crate::private_fs::directory(&directory)?;
-        if !self.config.try_exists()? {
-            capture(
-                &self.config,
-                None,
-                Command::Config {
-                    action: ConfigCommand::Init,
-                },
-            )?;
-        }
-        capture(&self.config, None, Command::Init)?;
-        Ok(directory)
-    }
-
-    fn provision_access(
-        &self,
-        user: &str,
-        server: &Path,
-        directory: &Path,
-        handoff: Option<&Path>,
-    ) -> Result<String> {
-        capture(
-            server,
-            None,
-            Command::Users {
-                action: UsersCommand::Init,
-            },
-        )?;
-        let server_settings = Settings::load(server)?;
-        users::register_profile(&server_settings, user, &self.config, true)?;
-        let issued = users::issue_key(
-            &server_settings,
+        let issued = provision_access(
+            &self.config,
             user,
-            KeyDestination::Directory(directory.canonicalize()?),
-            None,
+            server,
+            &directory,
+            handoff,
+            lifetime.days,
         )?;
-        crate::installation::save_receipt(&self.config, &issued.path)?;
-        if let Some(path) = handoff {
-            crate::installation::handoff_key(&issued.path, path)?;
-        }
-        Ok(issued.id)
+        ensure!(self.view.result("Profile configured", &format!("Your profile and private MCP key are ready.\n\nKey ID: {}\nLifetime: {}\nThe key itself is never displayed.\n\nPress Enter to let the installer start and verify the service, then deliver your connection file. The installer can configure Internet HTTPS next.", issued.id, lifetime.label))?, "setup cancelled before service startup");
+        Ok(())
     }
 
     fn choose(&mut self, title: &str, yes: &str, no: &str, description: &str) -> Result<bool> {
@@ -289,4 +285,56 @@ impl App {
         }
         Ok(())
     }
+}
+
+/// Create the private profile directory, its configuration and database.
+fn prepare_install_profile(config: &Path) -> Result<PathBuf> {
+    let directory = config
+        .parent()
+        .context("profile directory required")?
+        .to_path_buf();
+    crate::private_fs::directory(&directory)?;
+    if !config.try_exists()? {
+        capture(
+            config,
+            None,
+            Command::Config {
+                action: ConfigCommand::Init,
+            },
+        )?;
+    }
+    capture(config, None, Command::Init)?;
+    Ok(directory)
+}
+
+/// Register the profile, issue its key for `days` into the profile directory, save the receipt
+/// and copy the key into the installer's handoff file when one is given.
+fn provision_access(
+    config: &Path,
+    user: &str,
+    server: &Path,
+    directory: &Path,
+    handoff: Option<&Path>,
+    days: u32,
+) -> Result<users::IssuedKey> {
+    capture(
+        server,
+        None,
+        Command::Users {
+            action: UsersCommand::Init,
+        },
+    )?;
+    let server_settings = Settings::load(server)?;
+    users::register_profile(&server_settings, user, config, true)?;
+    let issued = users::issue_key(
+        &server_settings,
+        user,
+        KeyDestination::Directory(directory.canonicalize()?),
+        Some(days),
+    )?;
+    crate::installation::save_receipt(config, &issued.path)?;
+    if let Some(path) = handoff {
+        crate::installation::handoff_key(&issued.path, path)?;
+    }
+    Ok(issued)
 }

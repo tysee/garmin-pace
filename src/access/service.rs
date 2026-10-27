@@ -1,7 +1,7 @@
 //! src/access/service.rs owns principal validation and key authorization policy.
 //! AccessService consumes a registry port and checks expiry, revocation and user state.
 
-use super::{AccessError, Grant, KeyInfo, User};
+use super::{AccessError, Grant, KeyInfo, MAX_KEY_LIFETIME_DAYS, User};
 use std::sync::Arc;
 
 /// Persistence operations consumed by the access use cases.
@@ -78,7 +78,7 @@ impl AccessService {
         days: u32,
     ) -> Result<i64, AccessError> {
         validate_name(user)?;
-        if !(1..=365).contains(&days) {
+        if !(1..=MAX_KEY_LIFETIME_DAYS).contains(&days) {
             return Err(AccessError::InvalidLifetime);
         }
         let principal = self.registry.user(user)?.ok_or(AccessError::NotFound)?;

@@ -71,6 +71,9 @@ tools through mise. Do not install tools or dependencies without authorization.
   key adapter. Store only SHA-256 hashes of randomly generated 256-bit keys.
   Each registered profile owns a distinct canonical database and Garmin session path,
   plus a `garmin_writes` grant that defaults to off and is set only by the local CLI.
+  Every key has a definite expiry chosen when it is issued: the menu and the installer
+  offer 30 days, 6 months or no expiry, stored as 100 years (`MAX_KEY_LIFETIME_DAYS`);
+  the CLI `--days` and `access.key_lifetime_days` accept 1..=36500.
 - `src/private_fs.rs`: shared owner-only filesystem boundary for credentials and SQLite.
 - `src/workouts/benchmarks/`: benchmark catalogue, observed strength sets,
   evidence summaries and model proposals. Models estimate through MCP using real
@@ -170,11 +173,26 @@ tools through mise. Do not install tools or dependencies without authorization.
   There are no network calls in this authorization path and no grant cache.
 - Private Unix storage is required for SQLite and credentials. Do not log protocol
   payloads: only application tracing targets are enabled, including at debug/trace.
+- `deploy/package.sh <arch>` builds `dist/pace-linux-<arch>.tar.gz` for aarch64 and
+  x86_64 from the Containerfile, with Caddy pins in `deploy/release.conf`.
+  `.github/workflows/release.yml` runs the same scripts on native runners for `v*` tags
+  only (the tag must sit on `main` and equal the crate version) and attaches both
+  archives to the GitHub release; there is no manual or branch build. The x86_64
+  archive is the same installer for Debian/Ubuntu servers; it is not a device validation.
 - `deploy/` contains Linux systemd and HTTPS proxy configuration. Native MCP binds
   loopback; public access requires HTTPS ingress and a firewall excluding port 8080.
-  `deploy/install.sh` is the interactive Linux installer: fixed system destinations,
-  a dedicated service user, automatic profile paths, and authenticated readiness before
-  enabling boot startup. It installs bundled assets only, never downloads packages.
+  `deploy/install.sh` is the Linux installer. Easy setup keeps the fixed destinations
+  (`/usr/local`, `/var/lib/garmin-pace`, `/etc/garmin-pace`), a dedicated service user,
+  automatic profile paths and authenticated readiness before enabling boot startup;
+  advanced setup chooses the program and data directories and a system or user-only
+  install, and `--yes --system|--user --key-lifetime ...` answers everything from flags
+  for agents (`setup --quick --batch` provisions without a terminal). The mode and
+  directories are recorded in `install.env` and never moved by a later run. System mode
+  requires root or passwordless sudo plus systemd and fails fast otherwise; user mode has
+  no service account, no unit and no HTTPS, and the caller keeps `serve` running. The
+  binary goes to `<prefix>/lib/garmin-pace/pace`; the generated `<prefix>/bin/pace`
+  launcher opens the last installed profile's menu when typed without arguments and
+  otherwise execs the binary. Loopback readiness checks do not need system trust roots. It installs bundled assets only, never downloads packages.
   Optional HTTPS uses pinned bundled Caddy as a separate `pace-https` OS user and
   `garmin-pace-https.service`, with private certificate storage separate from Garmin.
   The wizard owns its generated proxy configuration, validates public domain input,

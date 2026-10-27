@@ -5,7 +5,7 @@ mod domain;
 mod keys;
 mod service;
 mod sqlite;
-pub use domain::{AccessError, Grant, KeyInfo, User};
+pub use domain::{AccessError, Grant, KeyInfo, MAX_KEY_LIFETIME_DAYS, User};
 pub use keys::{NewKey, key_digest};
 pub use service::{AccessRegistry, AccessService, validate_name};
 pub use sqlite::SqliteAccess;

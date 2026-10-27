@@ -25,6 +25,12 @@ fn client(timeout: Duration) -> ClientBuilder {
         .timeout(timeout)
 }
 
+/// Plain-HTTP loopback clients must not depend on system trust roots, which minimal
+/// containers used by agents often lack; an empty explicit root set skips loading them.
+fn http_client(timeout: Duration) -> ClientBuilder {
+    client(timeout).tls_certs_only(std::iter::empty::<reqwest::Certificate>())
+}
+
 fn wait_for_response(client: &Client, url: &str, key: &str, wait: Duration) -> Result<Response> {
     let deadline = Instant::now() + wait;
     loop {
@@ -93,7 +99,7 @@ pub fn probe_service(settings: &Settings) -> Result<ServiceProbe> {
         ip => ip,
     };
     let timeout = Duration::from_secs(settings.http.request_timeout_seconds.min(3));
-    let client = client(timeout).build()?;
+    let client = http_client(timeout).build()?;
     let url = format!("http://{}/api/v1/health", SocketAddr::new(ip, bind.port()));
     Ok(match client.get(&url).send() {
         Ok(response) if pace_challenge(&response) => ServiceProbe::Running,
@@ -108,7 +114,7 @@ pub fn check_service(settings: &Settings, profile: &Path) -> Result<()> {
     validate_listener(settings)?;
     let key = receipt_key(profile)?;
     let timeout = Duration::from_secs(settings.http.request_timeout_seconds);
-    let client = client(timeout).build()?;
+    let client = http_client(timeout).build()?;
     let url = format!("http://{}/api/v1/health", settings.http.bind);
     authorized_health(wait_for_response(&client, &url, &key, timeout)?)?;
     anonymous_rejected(&client, &url)

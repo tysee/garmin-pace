@@ -189,8 +189,8 @@ impl Settings {
             "access.registry_path is required"
         );
         ensure!(
-            (1..=365).contains(&settings.access.key_lifetime_days),
-            "access.key_lifetime_days must be 1..=365"
+            (1..=crate::access::MAX_KEY_LIFETIME_DAYS).contains(&settings.access.key_lifetime_days),
+            "access.key_lifetime_days must be 1..=36500"
         );
         if settings.access.registry_path.is_relative() {
             settings.access.registry_path = absolute

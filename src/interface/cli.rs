@@ -80,6 +80,12 @@ pub(super) enum Command {
         server_config: Option<PathBuf>,
         #[arg(long, requires = "quick", hide = true)]
         key_handoff: Option<PathBuf>,
+        /// Provision the profile, registry and key without a terminal; no Garmin step.
+        #[arg(long, requires_all = ["quick", "key_days"])]
+        batch: bool,
+        /// Key lifetime in days for --batch (the wizard asks instead).
+        #[arg(long, requires = "batch")]
+        key_days: Option<u32>,
     },
     /// Open the interactive terminal menu (also the default without a command).
     Ui {
@@ -179,19 +185,31 @@ pub fn run(cli: Cli) -> Result<()> {
         server_config,
         key_handoff,
         compact,
+        batch,
+        key_days,
     }) = cli.command
     {
         ensure!(
-            !cli.json && cli.env_file.is_none(),
-            "quick setup selects its own private credentials and requires a terminal"
+            cli.env_file.is_none(),
+            "quick setup selects its own private credentials"
         );
-        return super::terminal::quick_setup(
-            cli.config,
-            user.context("profile name required")?,
-            server_config.context("server config required")?,
-            key_handoff,
-            compact,
+        let user = user.context("profile name required")?;
+        let server = server_config.context("server config required")?;
+        if batch {
+            return super::terminal::quick_setup_batch(
+                cli.config,
+                user,
+                server,
+                key_handoff,
+                key_days.context("--key-days required with --batch")?,
+                cli.json,
+            );
+        }
+        ensure!(
+            !cli.json,
+            "the setup wizard requires a terminal and does not support --json"
         );
+        return super::terminal::quick_setup(cli.config, user, server, key_handoff, compact);
     }
     let command = match cli.command {
         None | Some(Command::Ui { .. }) | Some(Command::Setup { .. }) => {

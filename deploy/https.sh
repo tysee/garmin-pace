@@ -7,7 +7,8 @@ HTTPS_METADATA=/etc/garmin-pace/https.toml
 HTTPS_DIGEST=/etc/garmin-pace/Caddyfile.sha256
 HTTPS_UNIT=/etc/systemd/system/garmin-pace-https.service
 HTTPS_STATE=/var/lib/garmin-pace-https
-HTTPS_BINARY=/usr/local/lib/garmin-pace/caddy
+# install.sh sets LIB_DIR to <prefix>/lib/garmin-pace before sourcing this file.
+HTTPS_BINARY=$LIB_DIR/caddy
 HTTPS_URL=
 
 https_domain() {
@@ -51,18 +52,15 @@ https_account() {
 
 https_assets() {
     local installed bundled
-    public_directory /usr/local/lib
-    if [[ ! -e /usr/local/lib/garmin-pace && ! -L /usr/local/lib/garmin-pace ]]; then
-        root install -d -o root -g root -m 0755 /usr/local/lib/garmin-pace
-    fi
-    public_directory /usr/local/lib/garmin-pace
+    public_directory "$(dirname -- "$LIB_DIR")"
+    ensure_public_directory "$LIB_DIR"
     if [[ -f "$HTTPS_UNIT" ]]; then
         installed=$(sha256sum < "$HTTPS_UNIT")
         bundled=$(sha256sum < "$BUNDLE/garmin-pace-https.service")
         [[ "$installed" == "$bundled" ]] || fail 'The HTTPS service unit was customized. It was preserved.'
     fi
     https_account
-    BINARY_TEMP=$(root mktemp /usr/local/lib/garmin-pace/.caddy-install.XXXXXXXX)
+    BINARY_TEMP=$(root mktemp "$LIB_DIR/.caddy-install.XXXXXXXX")
     root install -o root -g root -m 0755 "$BUNDLE/caddy" "$BINARY_TEMP"
     root mv -T "$BINARY_TEMP" "$HTTPS_BINARY"
     BINARY_TEMP=
