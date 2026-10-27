@@ -1,0 +1,21 @@
+<!-- src/interface/swagger.html provides the public API documentation shell, pinned
+     Swagger assets, and a visible schema link when JavaScript or the CDN is unavailable. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Garmin Pace — Swagger UI</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui.css"
+    integrity="sha384-Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui-bundle.js"
+    integrity="sha384-ZPehFMQommnnuaZ4rpxgkgTT2DKFVp4hZC/7pLit+9Lek9T1YGSo23eHFbvNkXkw" crossorigin="anonymous"></script>
+  <script defer src="/api/v1/docs/init.js"></script>
+</head>
+<body>
+  <p id="swagger-status" role="status">Loading Swagger UI requires JavaScript and access to jsDelivr.
+    The <a href="/api/v1/openapi.json">local OpenAPI schema</a> remains available if the UI cannot load.</p>
+  <div id="swagger-ui"></div>
+</body>
+</html>

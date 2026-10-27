@@ -1,0 +1,13 @@
+.git
+target
+dist
+data
+tmp
+config.toml
+.env
+.env.*
+*.sqlite3*
+
+*.key
+
+*.env

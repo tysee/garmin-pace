@@ -1,0 +1,16 @@
+/target/
+/dist/
+/data/
+/config.toml
+/.env
+/.env.*
+!/.env.example
+/tmp/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.DS_Store
+
+*.key
+
+*.env

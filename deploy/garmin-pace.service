@@ -1,0 +1,44 @@
+# deploy/garmin-pace.service supervises the Linux MCP process under a dedicated OS user.
+# Install the binary/config and initialize the registry as that user before enabling this unit.
+[Unit]
+Description=Garmin Pace authenticated MCP
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=garmin-pace
+Group=garmin-pace
+ExecStart=/usr/local/bin/pace --config /etc/garmin-pace/config.toml serve --transport http
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=35
+StateDirectory=garmin-pace
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/garmin-pace
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/garmin-pace
+LimitCORE=0
+LimitNOFILE=256
+TasksMax=64
+MemoryMax=128M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

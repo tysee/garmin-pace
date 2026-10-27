@@ -1,0 +1,64 @@
+[database]
+path = "/data/private/garmin.sqlite3"
+busy_timeout_ms = 5000
+cache_kib = 2048
+
+[history]
+default_page_size = 20
+max_page_size = 100
+
+[health]
+body_battery_chunks = 720
+max_days = 31
+max_samples_per_day = 20000
+max_sample_page = 500
+max_records_per_metric = 64
+
+[http]
+bind = "0.0.0.0:8080"
+allowed_hosts = ["localhost", "127.0.0.1", "::1"]
+max_in_flight = 4
+max_connections = 32
+connection_lifetime_seconds = 90
+max_body_bytes = 16384
+# Garmin write tools over MCP need several paced requests; keep lifetime >= this value.
+request_timeout_seconds = 60
+
+[runtime]
+blocking_threads = 2
+log_level = "info"
+# stdio only: let the local MCP client call the Garmin write tools on your explicit
+# instruction. HTTP users are granted with `pace users allow-garmin-writes USER`.
+stdio_garmin_writes = false
+
+[garmin]
+personal_base_url = "https://personal.connectapi.garmin.com"
+connect_base_url = "https://connectapi.garmin.com"
+connect_timeout_seconds = 5
+request_timeout_seconds = 20
+max_response_bytes = 4194304
+read_retries = 2
+retry_base_ms = 500
+# Garmin rate-limits bursts. Space requests to each Garmin host by this many ms;
+# after HTTP 429 the spacing doubles (up to 8x) for the rest of the process.
+request_interval_ms = 1000
+# Reads wait out HTTP 429 as Garmin asks (Retry-After) this many times,
+# never longer than rate_limit_max_wait_seconds per wait.
+rate_limit_retries = 3
+rate_limit_max_wait_seconds = 120
+
+[garmin_auth]
+session_path = "/data/private/garmin-auth/session.json"
+sso_base_url = "https://sso.garmin.com"
+token_url = "https://diauth.garmin.com/di-oauth2-service/oauth/token"
+service_url = "https://mobile.integration.garmin.com/gcm/ios"
+sso_client_id = "GCM_IOS_DARK"
+oauth_client_id = "GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2"
+sso_user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+api_user_agent = "GCM-Android-5.23"
+login_delay_ms = 2000
+refresh_margin_seconds = 60
+
+[access]
+registry_path = "/data/private/access/registry.sqlite3"
+key_lifetime_days = 30

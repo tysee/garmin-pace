@@ -1,0 +1,58 @@
+[package]
+name = "garmin-pace"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+description = "Local Garmin activities, health metrics and training readiness for MCP clients"
+license = "MIT"
+repository = "https://github.com/tysee/garmin-pace"
+readme = "README.md"
+keywords = ["garmin", "mcp", "fitness", "sqlite", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "pace"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "=1.0.104"
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+base64 = "=0.22.1"
+rpassword = "=7.5.4"
+ring = "=0.17.14"
+rustix = { version = "=1.1.5", features = ["termios", "fs", "process"] }
+dotenvy = "=0.15.7"
+chrono = { version = "=0.4.45", default-features = false, features = ["std", "now"] }
+clap = { version = "=4.6.7", features = ["derive", "env"] }
+rmcp = { version = "=3.7.0", default-features = false, features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "json", "query", "form", "cookies", "rustls"] }
+rusqlite = { version = "=0.41.0", features = ["bundled"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+thiserror = "=2.0.21"
+tokio = { version = "=1.54.1", features = ["rt", "signal", "net", "macros"] }
+tokio-util = "=0.7.20"
+toml = "=1.1.8"
+tower = { version = "=0.5.3", features = ["limit"] }
+tower-http = { version = "=0.7.1", features = ["limit", "timeout"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "json", "std"] }
+
+tempfile = "=3.27.0"
+
+[dev-dependencies]
+rustix = { version = "=1.1.5", features = ["pty", "event"] }
+rmcp = { version = "=3.7.0", default-features = false, features = ["client", "transport-child-process"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

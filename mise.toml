@@ -1,0 +1,67 @@
+[tools]
+rust = "1.99.1"
+podman = "6.1.3"
+
+[vars]
+caddy_version = "2.11.7"
+caddy_linux_arm64_sha256 = "d8fc6d179a5d283028a472a5618564f6ad8a86fed513e64f032b3b0b7cc45e42"
+
+[env]
+_.path = ["{{config_root}}/target/debug"]
+GARMIN_PACE_CONFIG = "{{config_root}}/config.toml"
+
+[tasks.build]
+description = "Build the pace CLI for local development"
+run = "cargo build --locked --bin pace"
+
+[tasks.check]
+description = "Format, typecheck, lint, and test the application"
+run = [
+  "cargo fmt --all -- --check",
+  "cargo check --locked --all-targets",
+  "cargo clippy --locked --all-targets -- -D warnings",
+  "cargo test --locked",
+]
+
+[tasks."container:build"]
+description = "Build the local ARM64 development image"
+run = "podman build -f Containerfile -t localhost/garmin-pace:dev ."
+
+[tasks."container:init"]
+description = "Initialize the persistent development database"
+run = "podman run --rm --network none --read-only --cap-drop all --security-opt no-new-privileges -v garmin-pace-data:/data localhost/garmin-pace:dev init"
+
+[tasks."container:run"]
+description = "Run the authenticated development MCP endpoint on loopback"
+run = "podman run -d --name garmin-pace-dev --read-only --cap-drop all --security-opt no-new-privileges --memory 128m --cpus 1 --pids-limit 64 -p 127.0.0.1:8080:8080 -v garmin-pace-data:/data localhost/garmin-pace:dev serve --transport http"
+
+[tasks."container:sync"]
+description = "Import 20 recent Garmin activities into the development volume"
+run = "podman run --rm --read-only --cap-drop all --security-opt no-new-privileges --memory 128m --cpus 1 --pids-limit 64 --env-file .env -v garmin-pace-data:/data localhost/garmin-pace:dev garmin sync --limit 20"
+
+[tasks."container:menu"]
+description = "Open the main terminal menu inside the running development container"
+run = "podman exec -it garmin-pace-dev /app/pace --config /app/config.toml"
+
+[tasks."container:status"]
+description = "Read local history status from the development container"
+run = "podman exec garmin-pace-dev /app/pace --config /app/config.toml status"
+
+[tasks."container:stop"]
+description = "Stop and remove this project's development container"
+run = ["podman stop garmin-pace-dev", "podman rm garmin-pace-dev"]
+
+[tasks."container:export"]
+description = "Export the Linux ARM64 executable from the running development container"
+run = "mkdir -p dist && podman cp garmin-pace-dev:/app/pace dist/pace-linux-aarch64"
+
+[tasks."installer:package"]
+env.PACE_CADDY_VERSION = "{{vars.caddy_version}}"
+description = "Package the Linux ARM64 executable and interactive Raspberry Pi installer"
+run = "bash deploy/package.sh"
+
+[tasks."installer:fetch-https"]
+description = "Explicitly download pinned Caddy ARM64 for the HTTPS installer archive"
+env.PACE_CADDY_VERSION = "{{vars.caddy_version}}"
+env.PACE_CADDY_SHA256 = "{{vars.caddy_linux_arm64_sha256}}"
+run = "bash deploy/fetch-caddy.sh"

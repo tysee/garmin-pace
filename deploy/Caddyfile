@@ -1,0 +1,54 @@
+# deploy/Caddyfile exposes authenticated MCP routes and public API documentation.
+# The installer substitutes validated domain, loopback target and bounded HTTP settings.
+{
+	admin off
+	persist_config off
+	log default {
+		level INFO
+		exclude http.log.access admin.api
+		format filter {
+			wrap json
+			fields {
+				request delete
+				resp_headers delete
+			}
+		}
+	}
+	servers {
+		protocols h1 h2
+		max_header_size 16KB
+		timeouts {
+			read_header 10s
+			read_body {$GARMIN_PACE_TIMEOUT}s
+			idle 30s
+			write 60s
+		}
+	}
+	grace_period 10s
+}
+https://{$GARMIN_PACE_DOMAIN} {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Cache-Control "no-store"
+	}
+	@mcp path /api/v1/mcp /api/v1/health /api/v1/docs /api/v1/docs/init.js /api/v1/openapi.json
+	handle @mcp {
+		@foreign_origin expression `{http.request.header.Origin} != "" && {http.request.header.Origin} != "https://{$GARMIN_PACE_DOMAIN}"`
+		respond @foreign_origin 403
+		request_body {
+			max_size {$GARMIN_PACE_BODY_LIMIT}
+		}
+		reverse_proxy {$GARMIN_PACE_UPSTREAM} {
+			header_up Host {$GARMIN_PACE_UPSTREAM}
+			# Only the exact public HTTPS origin passes the check above.
+			header_up Origin http://{$GARMIN_PACE_UPSTREAM}
+			transport http {
+				dial_timeout 5s
+				response_header_timeout {$GARMIN_PACE_TIMEOUT}s
+			}
+		}
+	}
+	handle {
+		respond 404
+	}
+}
