@@ -1,14 +1,19 @@
 //! src/interface/mcp_sync.rs composes explicit bounded Garmin imports for an authorized
 //! profile. Credentials come only from its private file; sync shares the write concurrency gate.
 
-use super::mcp::{GarminAccess, HistoryMcp};
+use super::{
+    mcp::{GarminAccess, HistoryMcp},
+    responses::ActivityResponse,
+};
 use crate::{
     garmin::{ConnectApi, GarminBenchmarks, GarminHealth, PersonalApi},
     health::{Date, HealthError, document::DayDocument},
     history::{ActivityPeriod, HistoryError},
     secrets::Secrets,
     workouts::{
-        WorkoutError, WorkoutService, benchmarks::document::window, document::LibraryDocument,
+        WorkoutError, WorkoutService,
+        benchmarks::document::{ActivitySetsDocument, window},
+        document::LibraryDocument,
         validate_request,
     },
 };
@@ -46,6 +51,13 @@ struct StrengthSync {
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct ActivitySetsSync {
+    /// Garmin ID of a strength activity already stored locally.
+    garmin_id: String,
+    user_request: String,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct LibrarySync {
     limit: usize,
     offset: Option<usize>,
@@ -57,6 +69,9 @@ struct RefreshInput {
     id: u64,
     user_request: String,
 }
+
+/// One MCP activity import stays one bounded page over a short period.
+const MAX_PERIOD_DAYS: usize = 31;
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -117,9 +132,16 @@ impl HistoryMcp {
         let period = match (&input.start, &input.end) {
             (None, None) => None,
             (Some(start), Some(end)) => {
-                let dates = window(start, end).map_err(super::mcp_workouts::workout_error)?;
+                let date = |v: &str| v.parse::<Date>().map_err(super::mcp::health_error);
+                let (start, end) = (date(start)?, date(end)?);
+                start.range(end, MAX_PERIOD_DAYS).map_err(|_| {
+                    ErrorData::invalid_params(
+                        format!("activity period must contain 1..={MAX_PERIOD_DAYS} days"),
+                        None,
+                    )
+                })?;
                 Some(
-                    ActivityPeriod::new(dates.start.into(), dates.end.into())
+                    ActivityPeriod::new(start.into(), end.into())
                         .map_err(super::mcp::history_error)?,
                 )
             }
@@ -195,6 +217,43 @@ impl HistoryMcp {
             let count=profile.benchmarks.sync(&api,dates)?;
             Ok(json!({"sessions":count,"start":input.start,"end":input.end,"scope":"local_snapshot"}))
         }).await
+    }
+    #[tool(
+        description = "Explicitly import the recorded sets of one strength activity already stored locally, by its Garmin ID. Requires the Garmin grant and Connect session only: no Personal API key, activity search or benchmark catalogue. Replaces only that activity's sets; it does not mark its date as covered for other activities. Returns the same document as get_activity_sets_v1. Quote the user's sync request.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn sync_activity_sets_v1(
+        &self,
+        Parameters(input): Parameters<ActivitySetsSync>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        request(&input.user_request)?;
+        self.garmin_call(&context, move |profile, access| {
+            let activity = profile
+                .history
+                .find(&input.garmin_id)
+                .map_err(|error| match error {
+                    HistoryError::InvalidQuery(message) => WorkoutError::InvalidInput(message),
+                    other => history(other),
+                })?
+                .ok_or(WorkoutError::InvalidInput(
+                    "activity is not stored locally; sync activities first",
+                ))?;
+            let api = GarminBenchmarks::connect(&access.settings, &access.auth, None)
+                .map_err(upstream)?;
+            let sets =
+                super::benchmarks::import_activity_sets(&profile.benchmarks, &api, &activity)?;
+            Ok(json!({
+                "activity": ActivityResponse::from(activity),
+                "sets": ActivitySetsDocument::from(sets),
+            }))
+        })
+        .await
     }
     #[tool(
         description = "Explicitly import one page of the Garmin workout library, including newly created remote IDs after a lost save response. Requires the Garmin grant and Connect session. Advance next_offset until null, then inspect candidate definitions before reconciliation. Each completed workout snapshot remains saved on a later failure. Quote the user's sync request.",

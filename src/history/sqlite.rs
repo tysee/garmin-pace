@@ -12,7 +12,7 @@ use super::{
 };
 use crate::config::DatabaseSettings;
 
-const SCHEMA_VERSION: u32 = 10;
+const SCHEMA_VERSION: u32 = 11;
 const INITIAL_SCHEMA: &str = include_str!("../../migrations/0001_history.sql");
 
 /// SQLite history adapter. Connections are short-lived and never pooled.
@@ -110,6 +110,12 @@ impl SqliteHistory {
                     "../../migrations/0010_standalone_workouts.sql"
                 ))
                 .context("applying standalone workout index migration")?;
+            transaction.pragma_update(None, "user_version", 10)?;
+        }
+        if version < 11 {
+            transaction
+                .execute_batch(include_str!("../../migrations/0011_sync_runs.sql"))
+                .context("applying full sync journal migration")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         transaction.commit().context("committing history migration")

@@ -162,7 +162,8 @@ fn onboarding_hides_pasted_credentials_and_imports_from_garmin() -> Result<()> {
         "fixture-api-key-never-real"
     );
     back(&mut session)?;
-    session.until("√ 2. Personal API key")?;
+    // Saved and checked once, but no import has used it yet.
+    session.until("~ 2. Personal API key")?;
     session.search("import activities")?;
     session.until("> Recent activities")?;
     session.send(b"\r")?;
@@ -172,6 +173,7 @@ fn onboarding_hides_pasted_credentials_and_imports_from_garmin() -> Result<()> {
     assert!(!session.received.contains("fixture-api-key-never-real"));
     back(&mut session)?;
     session.until("√ 4. Import activities")?;
+    session.until("√ 2. Personal API key")?;
     server.finish()?;
     let db = rusqlite::Connection::open(&fixture.settings.database.path)?;
     let name: String = db.query_row(
@@ -240,7 +242,7 @@ fn onboarding_finds_the_saved_profile_key_without_prompting() -> Result<()> {
     garmin_pace::secrets::Secrets::save_personal_key(&path, "fixture-saved-key-never-real")?;
     let mut session = Session::start_args(&fixture, 100, 28, &["setup"])?;
     session.until("Pace / Onboarding")?;
-    session.until("√ 2. Personal API key")?;
+    session.until("~ 2. Personal API key")?;
     session.search("personal api key")?;
     session.until("Personal API key found.")?;
     session.until(&format!("To replace it, delete {}", path.display()))?;
@@ -393,5 +395,67 @@ fn onboarding_imports_activities_for_a_date_period() -> Result<()> {
     server.finish()?;
     back(&mut session)?;
     session.until("√ 4. Import activities")?;
+    session.exit()
+}
+
+#[test]
+fn status_marks_an_expired_token_and_an_unfinished_full_sync_as_partial() -> Result<()> {
+    use garmin_pace::sync::{Period, SqliteSyncJournal, Step, StepSource, SyncService, Window};
+    use std::ops::ControlFlow;
+    struct Unavailable(Step);
+    impl StepSource for Unavailable {
+        fn step(&self) -> Step {
+            self.0
+        }
+        fn window_days(&self) -> usize {
+            1
+        }
+        fn unavailable(&self) -> Option<String> {
+            Some("fixture reason".into())
+        }
+        fn import(&self, _: Window) -> Result<usize> {
+            anyhow::bail!("unavailable steps are never imported")
+        }
+    }
+    let fixture = Fixture::new()?;
+    fixture.init()?;
+    let session_path = &fixture.settings.garmin_auth.session_path;
+    let parent = session_path.parent().context("session parent")?;
+    fs::create_dir_all(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    }
+    let auth = &fixture.settings.garmin_auth;
+    fs::write(
+        session_path,
+        serde_json::json!({"version":1,"access_token":"fixture-expired-token","refresh_token":"fixture-refresh",
+            "expires_at":0,"client_id":auth.oauth_client_id,"token_url":auth.token_url,
+            "api_base_url":"https://connectapi.garmin.com"})
+        .to_string(),
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(session_path, fs::Permissions::from_mode(0o600))?;
+    }
+    let journal = SqliteSyncJournal::open(fixture.settings.database.clone())?;
+    let sources = Step::ORDER.map(Unavailable);
+    let sources: Vec<&dyn StepSource> = sources.iter().map(|s| s as &dyn StepSource).collect();
+    SyncService::new(&journal).start(
+        Period::new("2026-10-01".parse()?, "2026-10-01".parse()?)?,
+        &sources,
+        &|| "2026-10-02T00:00:00.000Z".into(),
+        &mut |_| ControlFlow::Continue(()),
+    )?;
+    let mut session = Session::start_args(&fixture, 120, 30, &[])?;
+    session.until("Pace / Actions")?;
+    session.search("Status")?;
+    session.until("Pace / Status")?;
+    session.until("~ Connect login")?;
+    session.until("access token expired, renews on the next Garmin request")?;
+    session.until("~ Full sync")?;
+    session.until("2026-10-01 partial; Activities: fixture reason")?;
     session.exit()
 }

@@ -17,6 +17,9 @@ use std::{path::Path, sync::Arc};
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Mark {
     Ready,
+    /// Usable but not fully established: a key no import has used yet, an expired access
+    /// token, or a full sync that did not cover its whole period.
+    Partial,
     Attention,
     /// Reference steps that have no state to check.
     Info,
@@ -27,9 +30,15 @@ impl Mark {
     pub(super) fn icon(self) -> &'static str {
         match self {
             Mark::Ready => "√",
+            Mark::Partial => "~",
             Mark::Attention => "×",
             Mark::Info => " ",
         }
+    }
+
+    /// Whether the credential behind the check can be used, possibly after a renewal.
+    pub(super) fn usable(self) -> bool {
+        matches!(self, Mark::Ready | Mark::Partial)
     }
 }
 
@@ -46,6 +55,8 @@ pub(super) struct Checks {
     pub activities: Check,
     pub last_sync: Check,
     pub health: Check,
+    /// The latest journaled full sync and whether every step covered its period.
+    pub full_sync: Check,
     pub server: Check,
     pub user: Check,
     pub access_key: Check,
@@ -79,6 +90,13 @@ fn ready(finding: impl Into<String>) -> Check {
     }
 }
 
+fn partial(finding: impl Into<String>) -> Check {
+    Check {
+        mark: Mark::Partial,
+        finding: finding.into(),
+    }
+}
+
 fn attention(finding: impl Into<String>) -> Check {
     Check {
         mark: Mark::Attention,
@@ -102,7 +120,7 @@ impl App {
     /// Check every onboarding area against local files only.
     pub(super) fn setup_checks(&mut self, server: &Path) -> Checks {
         let (profile_check, profile) = self.profile_check();
-        let key = reported(self.key_check());
+        let key = reported(self.key_check(profile.as_ref()));
         let (server_check, server_settings) = match Settings::load(server) {
             Ok(settings) if server == self.config => {
                 (ready("Uses this profile's config"), Some(settings))
@@ -110,7 +128,15 @@ impl App {
             Ok(settings) => (ready(format!("Uses {}", server.display())), Some(settings)),
             Err(error) => (attention(format!("{error:#}")), None),
         };
-        let [login, activities, last_sync, health, user, access_key] = match &profile {
+        let [
+            login,
+            activities,
+            last_sync,
+            health,
+            full_sync,
+            user,
+            access_key,
+        ] = match &profile {
             None => std::array::from_fn(|_| attention("Prepare the profile first")),
             Some(profile) => {
                 let (user, name) = match &server_settings {
@@ -131,6 +157,7 @@ impl App {
                     activities,
                     last_sync,
                     reported(health_check(profile)),
+                    reported(full_sync_check(profile)),
                     user,
                     access_key,
                 ]
@@ -150,6 +177,7 @@ impl App {
             activities,
             last_sync,
             health,
+            full_sync,
             server: server_check,
             user,
             access_key,
@@ -176,11 +204,44 @@ impl App {
         result.unwrap_or_else(|error| (attention(format!("{error:#}")), None))
     }
 
-    fn key_check(&mut self) -> Result<Check> {
+    /// A saved key is verified once an activity import succeeded after it was last written;
+    /// a key from the environment cannot be dated, so the last import stands for it.
+    fn key_check(&mut self, profile: Option<&Settings>) -> Result<Check> {
         self.resolve_credentials()?;
-        Ok(match self.key_source()? {
-            Some(source) => ready(format!("Found in {source}")),
-            None => attention("No key saved for this profile"),
+        let Some(source) = self.key_source()? else {
+            return Ok(attention("No key saved for this profile"));
+        };
+        let last_sync = match profile {
+            Some(profile) => HistoryService::new(
+                Arc::new(SqliteHistory::open(profile.database.clone())?),
+                profile.history.max_page_size,
+            )
+            .summary()?
+            .last_sync
+            .map(|sync| sync.completed_at),
+            None => None,
+        };
+        let Some(completed) = last_sync else {
+            return Ok(partial(format!(
+                "Found in {source}; no import has used it yet"
+            )));
+        };
+        let accepted = chrono::DateTime::parse_from_rfc3339(&completed)?;
+        let written = match &self.env_file {
+            Some(path) => Some(chrono::DateTime::<chrono::Utc>::from(
+                std::fs::metadata(path)?.modified()?,
+            )),
+            None => None,
+        };
+        Ok(match written {
+            Some(written) if written > accepted => partial(format!(
+                "Found in {source}; changed after the last import ({}), not used yet",
+                moment(&completed)
+            )),
+            _ => ready(format!(
+                "Found in {source}; accepted by Garmin in the import of {}",
+                moment(&completed)
+            )),
         })
     }
 
@@ -207,7 +268,9 @@ fn login_check(profile: &Settings) -> Result<Check> {
             Some(expires) if expires > chrono::Utc::now().timestamp() => {
                 ready(format!("Signed in; token valid until {}", date(expires)))
             }
-            Some(_) => ready("Signed in; token renews on the next Garmin request"),
+            Some(_) => {
+                partial("Signed in; access token expired, renews on the next Garmin request")
+            }
         },
     )
 }
@@ -259,6 +322,40 @@ fn health_check(profile: &Settings) -> Result<Check> {
     Ok(match summary.latest {
         Some(latest) => ready(format!("{} days saved; latest {latest}", summary.day_count)),
         None => attention("No health days saved yet"),
+    })
+}
+
+/// The latest full sync: complete, or which step did not cover its period and why.
+fn full_sync_check(profile: &Settings) -> Result<Check> {
+    use crate::sync::{RunState, SqliteSyncJournal, StepState, SyncService};
+    let journal = SqliteSyncJournal::open(profile.database.clone())?;
+    let Some(overview) = SyncService::new(&journal).overview()? else {
+        return Ok(attention("Never run"));
+    };
+    let run = &overview.run;
+    let first_gap = overview.steps.iter().find_map(|step| match &step.state {
+        StepState::Complete => None,
+        StepState::Partial { reason }
+        | StepState::Failed { reason }
+        | StepState::Skipped { reason } => Some(format!("{}: {reason}", step.step.label())),
+    });
+    Ok(match (run.state, first_gap) {
+        (RunState::Complete, _) => ready(format!(
+            "{} complete, {}",
+            run.period,
+            moment(run.finished_at.as_deref().unwrap_or(&run.started_at))
+        )),
+        (RunState::Running, _) => partial(format!(
+            "{} started {}; still running or interrupted",
+            run.period,
+            moment(&run.started_at)
+        )),
+        (RunState::Stopped, _) => partial(format!("{} stopped; continue it", run.period)),
+        (RunState::Partial, gap) => partial(format!(
+            "{} partial; {}",
+            run.period,
+            gap.unwrap_or_else(|| "a step did not finish".into())
+        )),
     })
 }
 

@@ -3,14 +3,19 @@
 [Documentation](README.md) · [Project home](../README.md)
 
 Output is human-readable; add `--json` for scripts (`pace --json status`).
-`pace --help` lists everything.
+`pace --help` lists the command groups; `pace help --all` prints every command with its flags,
+defaults and accepted values, and needs no `--config`.
 
 | Command | Purpose |
 | --- | --- |
 | `pace`, `pace ui --compact` | Terminal menu, optionally in the small-screen layout |
 | `pace setup` | Guided Garmin and MCP setup |
 | `pace config check`, `pace config show` | Validate or print the non-secret config |
+| `pace config network [--proxy-url URL \| --clear-proxy] [--extra-ca-file PATH \| --clear-ca]` | Show or change only the Garmin proxy and extra CA file |
 | `pace status` | Local history and last sync |
+| `pace doctor` | Check HTTPS to every Garmin host through Pace's own client, without keys |
+| `pace sync --start DATE [--end DATE]` | Import activities, strength sets, health and Coach for a period in one journaled run |
+| `pace sync --resume` | Continue the latest unfinished full sync, skipping windows it already imported |
 | `pace garmin sync --limit 20` | Import a page of recent activities |
 | `pace garmin sync --start DATE [--end DATE]` | Import every activity of a period, page by page |
 | `pace garmin login`, `pace garmin auth-status`, `pace garmin logout` | Manage the local Connect session |
@@ -38,13 +43,19 @@ Data freshness separates the latest stored observation date from its import time
 Empty health snapshots do not count as observed metric data. Today, Yesterday and
 Last 7 days shortcuts show exact inclusive dates before explicit confirmation;
 today is based on UTC, while Garmin selects its own calendar dates. Custom periods
-and recent-activity counts remain available. Nothing syncs on opening a screen.
+and recent-activity counts remain available. **Sync everything** runs the same full
+sync as `pace sync` with these shortcuts or a custom period, and offers to continue
+an unfinished run; Sync activities and Health → Import health import one dataset.
+Nothing syncs on opening a screen.
 
 The menu needs a TTY of at least 32×10 characters. Actions are grouped under
 History, Garmin, Training and Configuration headings; Onboarding's first step
 creates the configuration and initializes the database. Status lists local data,
-Garmin access and MCP readiness with a mark per row; Enter on a row explains
-the finding and names the action that changes it. Arrows or `j`/`k`
+Garmin access and MCP readiness with a mark per row: `√` ready, `~` usable but
+not fully established (a saved Garmin key no import has used since it was written,
+an expired access token that renews on the next Garmin request, a full sync that
+did not cover its period) and `×` needs action. Enter on a row explains the finding
+and names the action that changes it. Arrows or `j`/`k`
 move, Enter selects, `/` searches the flat list, Esc goes back, Ctrl-C exits.
 Network actions run only when you pick them; saving and delivery ask for
 confirmation. Activities, Workouts, Workout drafts, Benchmark exercises, Garmin

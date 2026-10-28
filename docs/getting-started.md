@@ -28,6 +28,10 @@ database and applies migrations. Nothing else creates or migrates storage, so ru
 
 ## Connect Garmin
 
+Behind a proxy or in a sandboxed agent environment, first run `pace doctor` from
+the terminal that will run Pace. It checks HTTPS to Garmin without keys; see
+[network path](configuration.md#network-path-proxies-and-trust-roots).
+
 The guided setup covers profile preparation, credentials, Connect login, first
 imports and optional HTTP access. Steps can be skipped or repeated. Opening it
 changes nothing until you confirm a step.
@@ -41,9 +45,10 @@ with a one-line finding such as the activity count or the next key expiry. The
 check reads only local files, never initializes missing storage and makes no
 network requests.
 
-The Personal API key step finds a saved key automatically: an explicit
+Every command and the menu find the Personal API key the same way: an explicit
 `--env-file`, otherwise `garmin.env` beside the profile database, otherwise the
-`GARMIN_PERSONAL_API_KEY` environment variable. Without one, paste the key into
+`GARMIN_PERSONAL_API_KEY` environment variable. Once the key is saved, CLI commands
+such as `pace garmin sync` need no `--env-file`. Without one, paste the key into
 the hidden field. It shows only how many characters arrived, trims surrounding
 spaces, checks the key with Garmin and saves it to a new `0600` `garmin.env`.
 To replace a saved key, delete that file and open the step again. Profiles set
@@ -79,7 +84,10 @@ successful sync time moves only after the whole period is in. The menu's Sync
 activities, and Onboarding's Import activities, ask whether to import recent
 activities by count or a period; Esc stops a period before the next page.
 
-`garmin check` verifies access without saving anything. Health sync covers at most
+`pace sync --start DATE [--end DATE]` imports activities, strength sets, health
+and Coach for a period in one run and reports each step; see
+[history and health](history-and-health.md). `garmin check` verifies access
+without saving anything. Health sync covers at most
 31 days per run and commits each day atomically; a failed day keeps its previous
 data. The menu's Import health takes `START` or `START END` (END defaults to today
 in UTC), splits longer ranges into 31-day parts after confirmation and shows

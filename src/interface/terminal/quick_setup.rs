@@ -14,6 +14,7 @@ use crate::{
     config::Settings,
     interface::{
         cli::{Command, ConfigCommand},
+        full_sync::Request,
         garmin::{self, GarminCommand},
         output::Output,
         users::{self, KeyDestination, UsersCommand},
@@ -245,12 +246,13 @@ impl App {
             match self.perform(Action::Login, "Garmin login") {
                 Ok(()) => {
                     if self.choose(
-                        "Health download",
-                        "Choose dates to download",
+                        "Full download",
+                        "Sync the last 7 days",
                         "Download later",
-                        "Select a Garmin calendar-date range",
+                        "Activities, strength sets, health and Coach; a few minutes, paced",
                     )? {
-                        self.import_health()?;
+                        let period = super::full_sync::last_week()?;
+                        self.run_full_sync(&settings, Request::Period(period), period)?;
                     }
                 }
                 Err(error) if error.is::<ExitRequested>() => return Err(error),
@@ -263,13 +265,12 @@ impl App {
     }
 
     fn initial_import(&mut self, command: Command) -> Result<()> {
-        self.view.frame(
+        let result = self.run_command(
             "First download",
-            &[("Downloading recent activities...".into(), Style::Plain)],
+            "Downloading recent activities...",
             "Waiting for Garmin",
+            command,
         )?;
-        let result = capture(&self.config, self.env_file.as_deref(), command);
-        rustix::termios::tcflush(io::stdin(), rustix::termios::QueueSelector::IFlush)?;
         match result {
             Ok(text) => {
                 self.view.result("Activities saved", &text)?;

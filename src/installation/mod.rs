@@ -1,6 +1,7 @@
 //! src/installation/mod.rs exposes private setup receipts, HTTPS configuration and readiness checks.
 //! The Linux installer uses its bounded key handoff and transport checks without exposing credentials;
-//! the menu uses the keyless probe and supervisor detection to keep MCP running without a terminal.
+//! the menu uses the keyless probe and supervisor detection to keep MCP running without a terminal,
+//! and installed_https_domain to show the HTTPS address the installer configured.
 
 mod https;
 pub use https::{PublicDomain, proxy_config};
@@ -8,7 +9,8 @@ mod check;
 pub use check::{ServiceProbe, check_https, check_service, probe_service};
 mod supervisor;
 pub use supervisor::{
-    ServiceState, Supervisor, UNIT_NAME, detect_supervisor, service_state, start_service,
+    HTTPS_UNIT_NAME, ServiceState, Supervisor, UNIT_NAME, detect_supervisor, service_state,
+    start_service,
 };
 
 use crate::{access::key_digest, config::Settings, private_fs};
@@ -111,6 +113,20 @@ pub fn validate_listener(settings: &Settings) -> Result<()> {
         "installer readiness requires a configured loopback listener"
     );
     Ok(())
+}
+
+/// Where deploy/https.sh records the configured domain; keep in sync with its HTTPS_METADATA.
+pub const HTTPS_METADATA: &str = "/etc/garmin-pace/https.toml";
+/// The server configuration of a system install; keep in sync with install.sh's CONFIG.
+pub const SYSTEM_CONFIG: &str = "/etc/garmin-pace/config.toml";
+
+/// The domain the installer's HTTPS setup recorded, or `None` when it never completed.
+pub fn installed_https_domain() -> Result<Option<PublicDomain>> {
+    let path = Path::new(HTTPS_METADATA);
+    if !path.try_exists()? {
+        return Ok(None);
+    }
+    load_https_domain(path).map(Some)
 }
 
 /// Read non-secret installer metadata without reflecting TOML parser input in errors.

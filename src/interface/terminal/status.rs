@@ -37,10 +37,10 @@ const fn row<'a>(
     }
 }
 
-/// Rows in reading order: local data, then Garmin access, then MCP. Three headings and nine
+/// Rows in reading order: local data, then Garmin access, then MCP. Three headings and ten
 /// rows fit a 24-row terminal without scrolling. The server config is this profile's config
 /// here, so the profile row already covers it.
-fn rows(checks: &Checks) -> [Row<'_>; 9] {
+fn rows(checks: &Checks) -> [Row<'_>; 10] {
     [
         row(
             "Local data",
@@ -65,6 +65,12 @@ fn rows(checks: &Checks) -> [Row<'_>; 9] {
             "Health days",
             "Onboarding step 5 imports a date range",
             &checks.health,
+        ),
+        row(
+            "Local data",
+            "Full sync",
+            "Sync everything imports a period or continues the unfinished run",
+            &checks.full_sync,
         ),
         row(
             "Garmin",

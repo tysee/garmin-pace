@@ -91,9 +91,14 @@ wizard.
 Running the installer again keeps config, history and credentials, issues another
 key and leaves a modified service unit alone. The binary lives in
 `<prefix>/lib/garmin-pace/pace`; the `pace` command in `<prefix>/bin` is a launcher
-that, typed without arguments in a terminal, opens the profile's menu (as the
-service account through `sudo runuser` in system mode) and otherwise runs the binary
-with the given arguments. The installer offers to open the menu as its last step.
+that runs every command against the last installed profile, so `pace` opens its menu
+and `pace garmin sync ...` needs neither `--config` nor `--env-file`
+from any directory. `--config` or `GARMIN_PACE_CONFIG` still selects another
+configuration. In system mode the launcher runs as the service account through
+`sudo runuser` (non-interactively with `sudo -n` when there is no terminal). The
+installer offers to open the menu as its last step. If `<prefix>/bin` is not on your
+`PATH`, the final message prints the full launcher path; add the directory to `PATH`
+in your shell profile to type `pace` after a new login.
 
 <details>
 <summary>Optional public HTTPS</summary>
@@ -108,6 +113,12 @@ needed and keep port 8080 private. The wizard can open the ports in an active
 UFW/firewalld after confirmation. DNS, router and CGNAT setup is yours. Caddy issues
 and renews certificates; errors are reported, not hidden. A passing local check
 does not prove Internet reachability, so test from another network.
+
+The menu's **Configuration → Internet access (HTTPS)** shows the configured domain,
+MCP URL and `garmin-pace-https.service` state, and re-runs the certificate and
+DNS-path check. It validates a new domain but cannot apply it: the menu runs as the
+service account, so an administrator with sudo applies the change with
+`./install.sh --https` from the release folder.
 
 Manual deployment: [systemd unit](../deploy/garmin-pace.service),
 [server config](../deploy/config.toml), [Caddyfile](../deploy/Caddyfile).

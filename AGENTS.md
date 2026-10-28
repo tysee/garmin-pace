@@ -31,6 +31,16 @@ tools through mise. Do not install tools or dependencies without authorization.
   Count and page are read in one SQLite snapshot; no entire archive is materialized.
 - `src/garmin/`: external Garmin HTTP adapters and boundary validation; history
   declares the activity source and transaction ports consumed by its sync use case.
+  One client factory serves every Garmin host: optional `garmin.proxy_url` (no
+  credentials) replaces the environment's HTTPS_PROXY/ALL_PROXY/NO_PROXY, and
+  `garmin.extra_ca_file` merges PEM roots into the platform store; TLS verification is
+  never disabled. Network failures are classified (DNS, proxy unreachable, tunnel
+  refused, untrusted certificate, timeout, refused) with host and redacted route only;
+  the environment route is decided per URL by reqwest's own hyper-util matcher (NO_PROXY).
+  `pace doctor` probes each Garmin host once without keys through the same client.
+  `pace config network` and the menu's Garmin network screen edit only those two `[garmin]`
+  lines in place (`src/config/network.rs`, no TOML editing dependency): a re-parse must show
+  no other change, the candidate loads and builds the client, then replaces the file atomically.
 - `src/health/`: pure metric/date types and bounded sync/read services; SQLite and
   document adapters. Eight datasets commit atomically per day, failed days retain
   previous snapshots. MCP reads local data and explicit granted sync tools refresh it; all health reads share the
@@ -41,6 +51,14 @@ tools through mise. Do not install tools or dependencies without authorization.
   An empty Body Battery report may contain only timestamp/null placeholders with
   explicitly null descriptors and summary fields; it is `no_data`, not measured
   samples. Populated samples still require column descriptors.
+- `src/sync/`: full sync over a period (at most 366 days): activities, strength sets, health and
+  Coach in that fixed order over windows aligned to the period start (31, 31, 1 and 7 days).
+  Step adapters in `src/interface/full_sync.rs` wrap the existing use cases; the feature owns
+  ordering, outcomes and the SQLite run journal (`sync_runs`, windows and step results; newest
+  20 runs kept). A missing credential skips its step with the reason; the first failed window
+  ends only its step. `--resume` continues the latest unfinished run, skipping done windows;
+  a new run always refetches. CLI `pace sync` and the menu's Sync everything (and onboarding's
+  first full download) share it; MCP keeps its bounded one-dataset sync tools.
 - `src/workouts/`: pure workout definitions, library/draft use cases and repository
   ports; document and SQLite adapters. Models author versioned local drafts through
   MCP; CLI/menu explicitly sync, save, reconcile and deliver them. MCP may save,
@@ -81,7 +99,10 @@ tools through mise. Do not install tools or dependencies without authorization.
   granted `save_benchmark_draft_to_garmin_v1` with the user's quoted instruction.
   One activity's imported sets are readable by activity ID and UTC date, with the
   covering strength import reported explicitly (`available`/`no_data`/`not_synced`);
-  the Activities menu and `get_activity_sets_v1` read them, never Garmin. A set without
+  the Activities menu and `get_activity_sets_v1` read them, never Garmin. A stored strength
+  activity's sets can also be imported alone by ID (`benchmark sync-activity`, the menu's
+  Import sets, granted `sync_activity_sets_v1`): one Connect `exerciseSets` read, no Personal
+  API token, search or catalogue, and no window coverage recorded for its date. A set without
   one exact exercise keeps Garmin's agreed category for display only.
   Filled benchmarks require an actual user request. Proactive proposals are allowed
   only for an unset benchmark needed by a specific current unsaved workout draft.
@@ -103,8 +124,10 @@ tools through mise. Do not install tools or dependencies without authorization.
   `podman exec`; elsewhere a confirmed launch hands the same process to foreground HTTP
   serving. Onboarding marks each step from a local,
   network-free self-check that never initializes missing storage; the Status screen shows
-  the same findings grouped by area (local data, Garmin, MCP) with a remedy per row,
-  and the main menu summarizes stored activities and the last successful sync in one line. The menu uses an explicit --env-file, else
+  the same findings grouped by area (local data, Garmin, MCP) with a remedy per row
+  (`~` marks a key not yet used by an import, an expired access token or an unfinished full sync),
+  and the main menu summarizes stored activities and the last successful sync in one line. CLI commands and the menu
+  resolve the key file alike (`secrets::profile_key_file`): an explicit --env-file, else
   `garmin.env` beside the profile database, else the environment; a missing key is
   pasted hidden (only its length is shown), checked with Garmin and saved to a new
   private `garmin.env`. Terminal control uses the already-locked `rustix`.
@@ -134,7 +157,8 @@ tools through mise. Do not install tools or dependencies without authorization.
   retry; the draft state and local delivery journal are the source of truth after a timeout.
   Sync calls require an explicit request, use only `garmin.env` beside the authenticated
   profile database, and never inherit a server-wide Personal API key. Health imports are
-  one day per call, strength windows at most 31 days, and activity/library imports one
+  one day per call, strength windows at most 31 days, a single activity's sets one ID per
+  call, and activity/library imports one
   bounded page per call; callers advance the returned offset. Local history search uses
   inclusive UTC dates, sport and bounded pagination. Delivery reads distinguish absent,
   unresolved and accepted requests by remote revision; UI labels accepted requests
@@ -144,8 +168,9 @@ tools through mise. Do not install tools or dependencies without authorization.
   A remote workout can be explicitly refreshed by ID or discovered by library sync for
   reconciliation. Known exercise search returns only exact identities in imported
   editable workouts and benchmark catalogues; it is not Garmin's complete exercise catalogue.
-  The non-blocking session
-  lock makes a concurrent menu/CLI Garmin operation fail explicitly.
+  Native token refresh and login hold the session file lock; another process waits at most
+  30 s for it (so a concurrent refresh is reused, not repeated) and then fails explicitly.
+  Reading the saved session's expiry needs no lock.
   A persistent circuit breaker is deferred until there is a long-running caller.
   Adapters own timeouts, response caps and bounded GET retries. Every Garmin request is
   paced per host for the whole process; reads wait out HTTP 429 within configured bounds
@@ -191,12 +216,16 @@ tools through mise. Do not install tools or dependencies without authorization.
   requires root or passwordless sudo plus systemd and fails fast otherwise; user mode has
   no service account, no unit and no HTTPS, and the caller keeps `serve` running. The
   binary goes to `<prefix>/lib/garmin-pace/pace`; the generated `<prefix>/bin/pace`
-  launcher opens the last installed profile's menu when typed without arguments and
-  otherwise execs the binary. Loopback readiness checks do not need system trust roots. It installs bundled assets only, never downloads packages.
+  launcher exports `GARMIN_PACE_CONFIG` (unless already set) for the last installed profile
+  and runs every command, the menu included, with it; system mode runs it as the service
+  account (`sudo -n` without a terminal). Loopback readiness checks do not need system trust roots. It installs bundled assets only, never downloads packages.
   Optional HTTPS uses pinned bundled Caddy as a separate `pace-https` OS user and
   `garmin-pace-https.service`, with private certificate storage separate from Garmin.
   The wizard owns its generated proxy configuration, validates public domain input,
   and checks trusted TLS locally before sending a key. DNS-path checks send no keys.
+  The menu's Internet access screen reads the recorded domain and unit state, runs the
+  same check and validates a new domain; only the installer applies it (the menu has no
+  root and gains no sudoers grant).
   ACME certificate pending/failure remains explicit; public reachability from an
   outside network is not inferred from a successful local check. Caddy owns certificate
   renewal/retry policy. DNS/router/CGNAT configuration remains outside the installer.

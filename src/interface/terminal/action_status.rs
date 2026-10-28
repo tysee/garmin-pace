@@ -52,9 +52,18 @@ impl App {
                     }
                     .into(),
                 ),
+                Action::FullSync => (
+                    format!("Last full sync: {}", checks.full_sync.finding),
+                    if checks.key.mark.usable() {
+                        "Choose today, 7 days or a custom period"
+                    } else {
+                        "Set the Personal API key in Onboarding"
+                    }
+                    .into(),
+                ),
                 Action::Sync => (
                     format!("Last import: {}", checks.last_sync.finding),
-                    if checks.key.mark == Mark::Ready {
+                    if checks.key.mark.usable() {
                         "Choose today, 7 days or a custom period"
                     } else {
                         "Set the Personal API key in Onboarding"
@@ -67,7 +76,7 @@ impl App {
                 ),
                 Action::Login => (
                     checks.login.finding.clone(),
-                    if checks.login.mark == Mark::Ready {
+                    if checks.login.mark.usable() {
                         "Sign in again only to replace this session"
                     } else {
                         "Sign in for workouts and readiness"
@@ -76,7 +85,7 @@ impl App {
                 ),
                 Action::Devices => (
                     "Live device list; not fetched by this menu".into(),
-                    if checks.login.mark == Mark::Ready {
+                    if checks.login.mark.usable() {
                         "Fetch registered devices from Garmin"
                     } else {
                         "Use Garmin login first"
@@ -174,6 +183,32 @@ impl App {
                     }
                     .into(),
                 ),
+                Action::GarminNetwork => (
+                    finding(crate::config::garmin_network(&config).map(|n| {
+                        format!(
+                            "Proxy: {}; extra CA: {}",
+                            n.proxy_url.as_deref().unwrap_or("environment"),
+                            n.extra_ca_file
+                                .as_ref()
+                                .map_or("none".into(), |p| p.display().to_string())
+                        )
+                    })),
+                    "Change the proxy or CA file, then check the Garmin connection".into(),
+                ),
+                Action::InternetAccess => match crate::installation::installed_https_domain() {
+                    Ok(Some(domain)) => (
+                        format!("HTTPS: {}", domain.mcp_url()),
+                        "Check the certificate and DNS path".into(),
+                    ),
+                    Ok(None) => (
+                        "HTTPS not configured on this host".into(),
+                        "Choose a domain; an administrator applies it with the installer".into(),
+                    ),
+                    Err(error) => (
+                        format!("Unavailable: {error:#}"),
+                        "Ask an administrator to review the HTTPS setup".into(),
+                    ),
+                },
                 Action::Initialize => (
                     checks.profile.finding.clone(),
                     "Create storage or apply pending migrations".into(),

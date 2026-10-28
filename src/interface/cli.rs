@@ -2,8 +2,9 @@
 //! feature with validated settings and starts a bounded runtime only for servers.
 
 use anyhow::{Context, Result, ensure};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::{
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -20,11 +21,16 @@ use crate::{
 
 /// Command-line contract for local configuration, diagnostics, and MCP serving.
 #[derive(Parser)]
-#[command(name = "pace", version, about)]
+#[command(
+    name = "pace",
+    version,
+    about,
+    after_help = "Run 'pace help --all' to list every command and its flags."
+)]
 pub struct Cli {
     #[arg(long, env = "GARMIN_PACE_CONFIG")]
     config: PathBuf,
-    /// Read credentials from a private dotenv file without executing it.
+    /// Read the Garmin key from this private dotenv file instead of the profile's garmin.env.
     #[arg(long, global = true)]
     env_file: Option<PathBuf>,
     /// Print structured JSON instead of human-readable command output.
@@ -32,6 +38,13 @@ pub struct Cli {
     json: bool,
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+/// The full command reference for exactly `pace help --all`, read before parsing so it needs
+/// no --config, like clap's own help.
+pub fn full_help(args: impl IntoIterator<Item = OsString>) -> Option<String> {
+    let args: Vec<OsString> = args.into_iter().skip(1).collect();
+    (args == ["help", "--all"]).then(|| super::cli_reference::render(&Cli::command()))
 }
 
 #[derive(Subcommand)]
@@ -108,6 +121,18 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: super::benchmarks::BenchmarkCommand,
     },
+    /// Import activities, strength sets, health and Coach for a period in one journaled run.
+    Sync {
+        /// First Garmin calendar date to import (YYYY-MM-DD).
+        #[arg(long, required_unless_present = "resume", conflicts_with = "resume")]
+        start: Option<crate::health::Date>,
+        /// Last date to import, inclusive; defaults to today in UTC.
+        #[arg(long, requires = "start")]
+        end: Option<crate::health::Date>,
+        /// Continue the latest unfinished run, skipping the windows it already imported.
+        #[arg(long)]
+        resume: bool,
+    },
     /// Authenticate with Garmin and synchronize recent activities.
     Garmin {
         #[command(subcommand)]
@@ -122,6 +147,8 @@ pub(super) enum Command {
     },
     /// Show local history and Garmin integration status.
     Status,
+    /// Check HTTPS to every Garmin host through Pace's own client, without sending keys.
+    Doctor,
     /// Read locally stored activities.
     Activities {
         #[command(subcommand)]
@@ -142,6 +169,21 @@ pub(super) enum ConfigCommand {
     Check,
     /// Print the effective non-secret settings (TOML by default).
     Show,
+    /// Show or change the Garmin proxy and extra CA file; other settings stay untouched.
+    Network {
+        /// Proxy for every Garmin request, http(s)://host[:port] without credentials.
+        #[arg(long, conflicts_with = "clear_proxy")]
+        proxy_url: Option<String>,
+        /// Remove the proxy so HTTPS_PROXY/ALL_PROXY/NO_PROXY from the environment apply.
+        #[arg(long)]
+        clear_proxy: bool,
+        /// PEM trust roots added to the platform store; relative to the configuration file.
+        #[arg(long, conflicts_with = "clear_ca")]
+        extra_ca_file: Option<PathBuf>,
+        /// Remove the extra CA file and trust the platform store only.
+        #[arg(long)]
+        clear_ca: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -246,7 +288,12 @@ pub(super) fn execute(
 ) -> Result<()> {
     // Each command composes only what it needs: settings, credentials or the access registry.
     let settings = || Settings::load(config_path);
-    let secrets = || crate::secrets::Secrets::load(env_file);
+    // The key file resolves like the menu's: --env-file, else garmin.env beside the database.
+    let secrets = |settings: &Settings| {
+        crate::secrets::Secrets::load(
+            crate::secrets::profile_key_file(env_file, &settings.database.path)?.as_deref(),
+        )
+    };
     let registry_only = || {
         ensure!(
             env_file.is_none(),
@@ -279,6 +326,43 @@ pub(super) fn execute(
             let settings = settings()?;
             output.message(&settings, &toml::to_string_pretty(&settings)?)
         }
+        Command::Config {
+            action:
+                ConfigCommand::Network {
+                    proxy_url,
+                    clear_proxy,
+                    extra_ca_file,
+                    clear_ca,
+                },
+        } => {
+            let current = config::garmin_network(config_path)?;
+            let wanted = config::GarminNetwork {
+                proxy_url: if clear_proxy {
+                    None
+                } else {
+                    proxy_url.or_else(|| current.proxy_url.clone())
+                },
+                extra_ca_file: if clear_ca {
+                    None
+                } else {
+                    extra_ca_file.or_else(|| current.extra_ca_file.clone())
+                },
+            };
+            let changed = wanted != current;
+            if changed {
+                config::update_garmin_network(config_path, &wanted, |s| {
+                    crate::garmin::check_client(&s.garmin)
+                })?;
+            }
+            output.message(
+                &serde_json::json!({
+                    "proxy_url": wanted.proxy_url,
+                    "extra_ca_file": wanted.extra_ca_file,
+                    "changed": changed,
+                }),
+                &network_text(&wanted, changed),
+            )
+        }
         Command::InstallationHttpsConfig {
             domain,
             saved_domain,
@@ -301,11 +385,22 @@ pub(super) fn execute(
         Command::Serve {
             transport: Transport::Stdio,
         } => serve_stdio(settings()?),
-        Command::Health { action } => super::health::run(action, &settings()?, &secrets()?, output),
-        Command::Benchmark { action } => {
-            super::benchmarks::run(action, &settings()?, &secrets()?, output)
+        Command::Health { action } => {
+            let settings = settings()?;
+            super::health::run(action, &settings, &secrets(&settings)?, output)
         }
-        Command::Garmin { action } => super::garmin::run(action, &settings()?, &secrets()?, output),
+        Command::Benchmark { action } => {
+            let settings = settings()?;
+            super::benchmarks::run(action, &settings, &secrets(&settings)?, output)
+        }
+        Command::Sync { start, end, resume } => {
+            let settings = settings()?;
+            super::full_sync::run(start, end, resume, &settings, &secrets(&settings)?, output)
+        }
+        Command::Garmin { action } => {
+            let settings = settings()?;
+            super::garmin::run(action, &settings, &secrets(&settings)?, output)
+        }
         Command::Coach { action } => super::coach::run(action, &settings()?, output),
         Command::Workout { action } => super::workouts::run(action, &settings()?, output),
         Command::Init => {
@@ -315,6 +410,7 @@ pub(super) fn execute(
                 "Database initialized.",
             )
         }
+        Command::Doctor => super::doctor::run(&settings()?, output),
         Command::Status => output.status(history(&settings()?)?.summary()?),
         Command::Activities {
             action:
@@ -361,6 +457,21 @@ pub(super) fn history(settings: &Settings) -> Result<HistoryService> {
     ))
 }
 
+fn network_text(network: &config::GarminNetwork, changed: bool) -> String {
+    let proxy = network.proxy_url.as_deref().map_or_else(
+        || "not set; HTTPS_PROXY/ALL_PROXY/NO_PROXY from the environment apply".into(),
+        |url| format!("{url} (replaces the environment's proxy)"),
+    );
+    let ca = network.extra_ca_file.as_ref().map_or_else(
+        || "not set; the platform trust store only".into(),
+        |path| format!("{} (added to the platform trust store)", path.display()),
+    );
+    let mut text = format!("Proxy: {proxy}\nExtra CA file: {ca}");
+    if changed {
+        text.push_str("\n\nSaved. A running MCP server applies it after a restart.\nCheck the Garmin path with pace doctor.");
+    }
+    text
+}
 fn installation_https_config(
     settings: &Settings,
     domain: Option<String>,

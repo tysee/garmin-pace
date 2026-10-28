@@ -1,6 +1,7 @@
 //! src/secrets.rs reads selected dotenv files as data and creates private credential files.
 //! It exposes safe lookup, the profile's fixed key-file location beside its private database,
-//! and Personal API key delivery without secret-bearing diagnostics.
+//! the shared key-file resolution used by every command, and Personal API key delivery
+//! without secret-bearing diagnostics.
 
 use anyhow::{Context, Result, bail, ensure};
 use std::{
@@ -19,6 +20,16 @@ pub fn profile_key_path(database: &Path) -> Result<PathBuf> {
         .parent()
         .context("database path has no parent")?
         .join(PROFILE_KEY_FILE))
+}
+
+/// The key file every CLI and menu command reads: an explicit dotenv file, else the
+/// profile's saved key when it exists, else none so only the environment applies.
+pub fn profile_key_file(explicit: Option<&Path>, database: &Path) -> Result<Option<PathBuf>> {
+    if let Some(path) = explicit {
+        return Ok(Some(path.to_owned()));
+    }
+    let path = profile_key_path(database)?;
+    Ok(path.try_exists()?.then_some(path))
 }
 
 /// Credentials from the environment, optionally overridden by an explicit dotenv file.

@@ -3,7 +3,7 @@
 //! explicit sync, save and device menus invoke the public workout service.
 
 use super::{
-    App, Choice, Selection, Style, capture,
+    App, Choice, Selection, Style,
     view::{Column, Width},
 };
 use crate::{
@@ -540,21 +540,6 @@ impl App {
         }
     }
     pub(super) fn workout_command(&mut self, title: &str, command: WorkoutCommand) -> Result<bool> {
-        self.view.frame(
-            title,
-            &[("Working...".into(), Style::Plain)],
-            "Waiting for the selected operation",
-        )?;
-        let result = capture(
-            &self.config,
-            self.env_file.as_deref(),
-            Command::Workout { action: command },
-        );
-        rustix::termios::tcflush(std::io::stdin(), rustix::termios::QueueSelector::IFlush)?;
-        let Some(text) = self.recover(title, result)? else {
-            return Ok(false);
-        };
-        self.view.result(title, &text)?;
-        Ok(true)
+        self.show_command(title, Command::Workout { action: command })
     }
 }

@@ -10,7 +10,10 @@ mod brand;
 mod coach;
 mod delivery;
 mod freshness;
+mod full_sync;
 mod health_metrics;
+mod https;
+mod network;
 mod quick_setup;
 mod setup;
 mod setup_access;
@@ -142,10 +145,7 @@ impl App {
         self.env_file = None;
         if self.config.try_exists()? {
             let settings = Settings::load(&self.config)?;
-            let path = crate::secrets::profile_key_path(&settings.database.path)?;
-            if path.try_exists()? {
-                self.env_file = Some(path);
-            }
+            self.env_file = crate::secrets::profile_key_file(None, &settings.database.path)?;
         }
         Ok(())
     }
@@ -173,6 +173,9 @@ impl App {
         if action == Action::McpUsers {
             let config = self.config.clone();
             return self.mcp_users(&config);
+        }
+        if action == Action::FullSync {
+            return self.full_sync();
         }
         if action == Action::Sync {
             match self.sync_mode(title)? {
@@ -235,6 +238,12 @@ impl App {
         if action == Action::Drafts {
             return self.workout_drafts();
         }
+        if action == Action::GarminNetwork {
+            return self.garmin_network();
+        }
+        if action == Action::InternetAccess {
+            return self.internet_access();
+        }
         if let Some(question) = action.confirmation()
             && !self.confirm(title, question, question)?
         {
@@ -278,6 +287,38 @@ impl App {
             .view
             .select(title, &choices, &mut Selection::default(), false)?
             == Some(1))
+    }
+
+    /// Run one dispatcher command behind a waiting frame, then discard typing made meanwhile
+    /// so it cannot confirm a later action. The inner result is the command's own outcome.
+    fn run_command(
+        &mut self,
+        title: &str,
+        waiting: &str,
+        footer: &str,
+        command: Command,
+    ) -> Result<Result<String>> {
+        self.view
+            .frame(title, &[(waiting.into(), Style::Plain)], footer)?;
+        let result = capture(&self.config, self.env_file.as_deref(), command);
+        rustix::termios::tcflush(io::stdin(), rustix::termios::QueueSelector::IFlush)?;
+        Ok(result)
+    }
+
+    /// Run a command with the generic working frame and show its output, or its failure
+    /// locally. Returns whether the command succeeded.
+    fn show_command(&mut self, title: &str, command: Command) -> Result<bool> {
+        let result = self.run_command(
+            title,
+            "Working...",
+            "Waiting for the selected operation",
+            command,
+        )?;
+        let Some(text) = self.recover(title, result)? else {
+            return Ok(false);
+        };
+        self.view.result(title, &text)?;
+        Ok(true)
     }
 
     /// Present an action failure locally; never retry work or swallow terminal exit.

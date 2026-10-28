@@ -3,7 +3,7 @@
 //! and existing workout/draft screens own step review, save and delivery actions.
 
 use super::{
-    App, Choice, Selection, Style, capture,
+    App, Choice, Selection,
     view::{Column, Width},
 };
 use crate::{
@@ -173,26 +173,18 @@ impl App {
         Ok(())
     }
     fn sync_coach_week(&mut self, window: Window) -> Result<()> {
-        self.view.frame(
-            "Sync Coach",
-            &[(
-                "Reading plans and scheduled workouts...".into(),
-                Style::Plain,
-            )],
-            "Waiting for Garmin",
-        )?;
         let _reporting = self.report_rate_waits()?;
-        let result = capture(
-            &self.config,
-            self.env_file.as_deref(),
+        let result = self.run_command(
+            "Sync Coach",
+            "Reading plans and scheduled workouts...",
+            "Waiting for Garmin",
             Command::Coach {
                 action: CoachCommand::Sync {
                     start: window.start.to_string(),
                     end: window.end.to_string(),
                 },
             },
-        );
-        rustix::termios::tcflush(std::io::stdin(), rustix::termios::QueueSelector::IFlush)?;
+        )?;
         self.coach_message("Coach imported", &result?)
     }
     fn coach_model_help(&mut self, window: Window) -> Result<()> {

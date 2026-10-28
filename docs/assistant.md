@@ -24,7 +24,7 @@ claude mcp add --transport stdio garmin-pace -- \
 
 Rebuild with `mise exec -- cargo build --release --locked --bin pace` after source changes
 and reconnect the server in your client. Use the same config for sync and MCP so new imports are visible.
-The current catalogue has 36 tools, including `get_coach_v1` and `sync_coach_v1`.
+The current catalogue has 37 tools, including `get_coach_v1` and `sync_coach_v1`.
 If an existing Codex connection still shows 34, reconnect `garmin-pace` in the
 client's MCP settings to reload its tool definitions. Verify both Coach tools are
 available; `get_capabilities_v1` alone checks the running server, not the client's
@@ -34,10 +34,12 @@ Client docs: [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
 
 ## MCP tools
 
-Agent workflows also expose `get_capabilities_v1`, `search_activities_v1` (inclusive
-UTC dates, sport, limit and offset), and `get_activity_v1` (stored Garmin ID).
+Agent workflows also expose `get_capabilities_v1`, `search_activities_v1` (optional
+inclusive UTC dates, sport and name substring, limit and offset; returns the matching total), and `get_activity_v1` (stored Garmin ID).
 The original `list_activities` contract stays available for existing clients.
-`get_workout_deliveries_v1` reads the local request journal with revision, device,
+`list_workouts_v1` accepts `standalone: true` to exclude Coach plan workouts.
+`get_workout_deliveries_v1` reads the local request journal (one device, or every device
+when `device_id` is omitted) with revision, device,
 `sending`/`queued` state and pagination. The additive `status_label` displays
 `queued` as **Sent to watch**, meaning Garmin accepted the send request, not a live
 queue observation. The v1 state codes remain stable for existing MCP clients.
@@ -47,8 +49,10 @@ benchmark catalogues, including linked exercises. An empty result means sync tho
 sources or supply a supported exercise; it is not a complete Garmin catalogue.
 
 With the existing Garmin-writes grant, explicit agent requests can call
-`sync_activities_v1` (one bounded page, optionally scoped to Garmin local dates),
+`sync_activities_v1` (one bounded page, optionally scoped to at most 31 Garmin local dates),
 `sync_health_v1` (one Garmin calendar day), `sync_strength_v1` (up to 31 UTC days),
+`sync_activity_sets_v1` (one stored strength activity's sets by Garmin ID, Connect
+session only, no activity search),
 `sync_workouts_v1` (one library page), and `refresh_workout_v1` (one remote ID).
 Use returned offsets to continue imports. Completed pages/days remain available
 after a later failure. Personal API credentials must be in private `garmin.env`
@@ -80,7 +84,8 @@ not zero sleep. A response containing undated sleep observations is rejected.
 Body Battery's timestamp/null placeholders with null descriptors and no summary
 are also `no_data`; populated samples still require valid column descriptors.
 Activity sets use the same statuses and exist locally
-only after `benchmark sync` covered the activity's UTC date. Readiness snapshots
+only after `benchmark sync` covered the activity's UTC date or that activity's sets
+were imported by ID. Readiness snapshots
 keep their original time and context. Body Battery samples are interval extrema (720 intervals per day by
 default), not raw sensor readings.
 

@@ -3,7 +3,7 @@
 //! Network work runs only from explicit sync, save or reconciliation selections.
 
 use super::{
-    App, Choice, Selection, Style, capture,
+    App, Choice, Selection,
     view::{Column, Width},
     workouts::{PAGE_SIZE, day, paging},
 };
@@ -312,21 +312,12 @@ impl App {
         }
         Ok(())
     }
-    fn benchmark_command(&mut self, title: &str, command: BenchmarkCommand) -> Result<()> {
-        self.view.frame(
-            title,
-            &[("Working...".into(), Style::Plain)],
-            "Waiting for the selected operation",
-        )?;
-        let result = capture(
-            &self.config,
-            self.env_file.as_deref(),
-            Command::Benchmark { action: command },
-        );
-        rustix::termios::tcflush(std::io::stdin(), rustix::termios::QueueSelector::IFlush)?;
-        if let Some(text) = self.recover(title, result)? {
-            self.view.result(title, &text)?;
-        }
-        Ok(())
+    pub(super) fn benchmark_command(
+        &mut self,
+        title: &str,
+        command: BenchmarkCommand,
+    ) -> Result<()> {
+        self.show_command(title, Command::Benchmark { action: command })
+            .map(|_| ())
     }
 }

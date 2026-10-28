@@ -1,6 +1,7 @@
 //! src/interface/terminal/setup_health.rs imports Garmin health for any date range from the menu.
-//! App::import_health reads one START [END] line (END defaults to today, UTC), splits long
-//! ranges into configured windows and shows per-day progress. Esc stops after the current
+//! App::import_health reads one START [END] line (END defaults to today, UTC); and
+//! App::import_health_range, also used by date presets, splits long ranges into configured
+//! windows and shows per-day progress. Esc stops after the current
 //! day; every committed day stays saved. Hints explain Garmin's rate limit and the pacing
 //! that avoids it; rate-limit waits appear on the footer row while they last.
 
@@ -82,6 +83,15 @@ impl App {
                 return Ok(());
             }
         }
+        self.import_health_range(start, end)
+    }
+
+    /// Import every day of an inclusive range with per-day progress; shared by the custom
+    /// range prompt and the date presets. Confirmation belongs to the caller.
+    pub(super) fn import_health_range(&mut self, start: Date, end: Date) -> Result<()> {
+        let settings = Settings::load(&self.config)?;
+        let windows = start.windows(end, settings.health.max_days)?;
+        let total = start.days_through(end);
         let secrets = Secrets::load(self.env_file.as_deref())?;
         let service = health::service(&settings)?;
         let _reporting = self.report_rate_waits()?;

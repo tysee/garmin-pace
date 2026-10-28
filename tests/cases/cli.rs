@@ -33,6 +33,40 @@ fn interactive_cli_requires_a_terminal_and_rejects_json() -> Result<()> {
 }
 
 #[test]
+fn full_help_lists_every_visible_command_and_flag_without_a_config() -> Result<()> {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_pace"))
+        .env_remove("GARMIN_PACE_CONFIG")
+        .args(["help", "--all"])
+        .output()?;
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout)?;
+    for needle in [
+        "--config <CONFIG> (required)",
+        "[env: GARMIN_PACE_CONFIG]",
+        "pace workout send",
+        "--device-id <DEVICE_ID> (required)",
+        "pace config network",
+        "--clear-proxy",
+        "pace activities list",
+        "[default: 0]",
+        "[values: stdio, http]",
+    ] {
+        assert!(text.contains(needle), "{needle}\n{text}");
+    }
+    for hidden in ["installation-check", "--key-handoff", "pace help"] {
+        assert!(!text.contains(hidden), "{hidden}");
+    }
+    // Global options are listed once, not repeated under every command.
+    assert_eq!(text.matches("--json").count(), 1);
+    let short = std::process::Command::new(env!("CARGO_BIN_EXE_pace"))
+        .env_remove("GARMIN_PACE_CONFIG")
+        .arg("--help")
+        .output()?;
+    assert!(String::from_utf8(short.stdout)?.contains("pace help --all"));
+    Ok(())
+}
+
+#[test]
 fn cli_configuration_and_history_flow() -> Result<()> {
     let fixture = Fixture::new()?;
     let check = std::process::Command::new(env!("CARGO_BIN_EXE_pace"))
@@ -189,5 +223,90 @@ fn human_cli_initializes_and_reads_history_with_units() -> Result<()> {
     let machine = human(&["status", "--json"])?;
     let value: Value = serde_json::from_slice(&machine.stdout)?;
     assert_eq!(value["activity_count"], 2);
+    Ok(())
+}
+
+#[test]
+fn config_network_edits_only_the_garmin_egress_keys() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let original = std::fs::read_to_string(&fixture.config)?;
+    let network = |args: &[&str]| -> Result<(bool, Value, String)> {
+        let output = fixture
+            .command()
+            .args(["config", "network"])
+            .args(args)
+            .output()?;
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let value = serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
+        Ok((output.status.success(), value, stderr))
+    };
+    let (ok, shown, stderr) = network(&[])?;
+    assert!(ok, "{stderr}");
+    assert_eq!(
+        shown,
+        json!({"proxy_url":null,"extra_ca_file":null,"changed":false})
+    );
+
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/egress-ca.pem"),
+        fixture.config.with_file_name("egress-ca.pem"),
+    )?;
+    let (ok, saved, stderr) = network(&[
+        "--proxy-url",
+        "http://proxy.test:3128",
+        "--extra-ca-file",
+        "egress-ca.pem",
+    ])?;
+    assert!(ok, "{stderr}");
+    assert_eq!(saved["changed"], true);
+    let edited = std::fs::read_to_string(&fixture.config)?;
+    // Exactly two lines were added; every original line, comment and path is unchanged.
+    let added: Vec<_> = edited
+        .lines()
+        .filter(|line| !original.lines().any(|o| o == *line))
+        .collect();
+    assert_eq!(
+        added,
+        [
+            "proxy_url = \"http://proxy.test:3128\"",
+            "extra_ca_file = \"egress-ca.pem\""
+        ]
+    );
+    let settings = garmin_pace::config::Settings::load(&fixture.config)?;
+    assert_eq!(
+        settings.garmin.proxy_url.as_deref(),
+        Some("http://proxy.test:3128")
+    );
+    assert_eq!(
+        settings.garmin.extra_ca_file,
+        Some(
+            fixture
+                .config
+                .with_file_name("egress-ca.pem")
+                .canonicalize()?
+        )
+    );
+
+    // Rejected candidates leave the file byte-identical and no temporary file behind.
+    for args in [
+        &["--proxy-url", "http://user:secret@proxy.test:3128"][..],
+        &["--extra-ca-file", "missing.pem"][..],
+        &["--proxy-url", "x", "--clear-proxy"][..],
+    ] {
+        let (ok, _, stderr) = network(args)?;
+        assert!(!ok, "{args:?}");
+        assert!(!stderr.contains("secret"), "{stderr}");
+        assert_eq!(std::fs::read_to_string(&fixture.config)?, edited);
+    }
+    let leftovers = std::fs::read_dir(fixture.config.parent().unwrap_or(&fixture.config))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".pace-edit"))
+        .count();
+    assert_eq!(leftovers, 0);
+
+    let (ok, cleared, _) = network(&["--clear-proxy", "--clear-ca"])?;
+    assert!(ok);
+    assert_eq!(cleared["proxy_url"], Value::Null);
+    assert_eq!(std::fs::read_to_string(&fixture.config)?, original);
     Ok(())
 }

@@ -1,6 +1,7 @@
 //! src/interface/terminal/activities.rs pages through stored activities as a table and opens
 //! one activity's details, including the imported sets of a strength activity. Reads are
-//! local; importing stays with the Sync and strength sync actions.
+//! local except the explicit per-activity sets import; other imports stay with the Sync and
+//! strength sync actions.
 
 use super::{
     App, Choice, Selection,
@@ -10,7 +11,7 @@ use super::{
 use crate::{
     config::Settings,
     history::{Activity, ActivityQuery, HistoryService},
-    interface::{benchmark_view, benchmarks, cli},
+    interface::{benchmark_view, benchmarks, benchmarks::BenchmarkCommand, cli},
     workouts::benchmarks::{BenchmarkService, SqliteBenchmarks},
 };
 use anyhow::Result;
@@ -187,12 +188,53 @@ impl App {
                     offset = offset.saturating_sub(page);
                     state = Selection::default();
                 }
-                Some(index) => {
-                    let result = details(&rows[index], &benchmarks);
-                    if let Some(text) = self.recover("Activity", result)? {
-                        self.view.result("Activity", &text)?;
-                    }
+                Some(index) if rows[index].sport == "strength_training" => {
+                    self.strength_activity(&rows[index], &benchmarks)?;
                 }
+                Some(index) => self.activity_details(&rows[index], &benchmarks)?,
+            }
+        }
+    }
+
+    fn activity_details(
+        &mut self,
+        activity: &Activity,
+        benchmarks: &BenchmarkService,
+    ) -> Result<()> {
+        let result = details(activity, benchmarks);
+        if let Some(text) = self.recover("Activity", result)? {
+            self.view.result("Activity", &text)?;
+        }
+        Ok(())
+    }
+
+    /// A strength activity can also import its own sets; nothing else contacts Garmin here.
+    fn strength_activity(
+        &mut self,
+        activity: &Activity,
+        benchmarks: &BenchmarkService,
+    ) -> Result<()> {
+        let choices = [
+            Choice::new("View details", "Activity summary and its imported sets"),
+            Choice::new(
+                "Import sets from Garmin",
+                "Read this activity's sets by its ID; no activity search",
+            ),
+        ];
+        let mut state = Selection::default();
+        loop {
+            match self
+                .view
+                .select(&activity.name, &choices, &mut state, false)?
+            {
+                None => return Ok(()),
+                Some(0) => self.activity_details(activity, benchmarks)?,
+                Some(_) => self.benchmark_command(
+                    "Import sets from Garmin",
+                    BenchmarkCommand::SyncActivity {
+                        id: activity.garmin_id.clone(),
+                    },
+                )?,
             }
         }
     }

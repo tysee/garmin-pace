@@ -99,7 +99,7 @@ impl HistoryMcp {
         .await
     }
     #[tool(
-        description = "Read the exercise sets recorded in one locally stored strength activity: per set the exact exercise (or only Garmin's category when no single exercise was recorded), load in kilograms and repetitions; rest sets are inactive. Sets exist locally only after a strength sync covering the activity's UTC date: status is available, no_data (the covering import holds no session for this activity) or not_synced (ask for a strength sync of that date). Non-strength activities have no sets. No network access.",
+        description = "Read the exercise sets recorded in one locally stored strength activity: per set the exact exercise (or only Garmin's category when no single exercise was recorded), load in kilograms and repetitions; rest sets are inactive. Sets exist locally only after a strength sync covering the activity's UTC date or a per-activity sync_activity_sets_v1 import: status is available, no_data (the covering import holds no session for this activity) or not_synced (ask for either import). Non-strength activities have no sets. No network access.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,

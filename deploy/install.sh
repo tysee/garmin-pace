@@ -266,21 +266,23 @@ install_file() {
     BINARY_TEMP=
 }
 
-# The PATH command opens the profile menu when typed alone and otherwise runs the real binary.
+# The PATH command runs every command, the menu included, against the last installed profile;
+# --config or GARMIN_PACE_CONFIG still selects another. System mode runs as the service account.
 install_launcher() {
-    local menu
+    local run
     if [[ "$MODE" == user ]]; then
-        menu="    exec $BINARY --config $PROFILE_CONFIG"
+        run="exec $BINARY \"\$@\""
     else
-        menu="    if (( EUID == 0 )); then exec runuser --pty -u $SERVICE_USER -- $BINARY --config $PROFILE_CONFIG; fi
-    exec sudo runuser --pty -u $SERVICE_USER -- $BINARY --config $PROFILE_CONFIG"
+        run="[[ \$(id -un) == $SERVICE_USER ]] && exec $BINARY \"\$@\"
+pty=; [[ -t 0 && -t 1 ]] && pty=--pty
+if (( EUID == 0 )); then exec runuser \$pty -u $SERVICE_USER -- env GARMIN_PACE_CONFIG=\"\$GARMIN_PACE_CONFIG\" $BINARY \"\$@\"; fi
+prompt=; [[ -t 0 ]] || prompt=-n
+exec sudo \$prompt runuser \$pty -u $SERVICE_USER -- env GARMIN_PACE_CONFIG=\"\$GARMIN_PACE_CONFIG\" $BINARY \"\$@\""
     fi
     printf '%s\n' '#!/bin/bash' \
-        "# $LAUNCHER opens the installed Pace menu; arguments go to the real binary." \
-        "if [[ \$# -eq 0 && -t 0 && -t 1 ]]; then" \
-        "$menu" \
-        "fi" \
-        "exec $BINARY \"\$@\"" | install_file "$LAUNCHER" 0755
+        "# $LAUNCHER runs Pace for the installed profile; --config or GARMIN_PACE_CONFIG selects another." \
+        "export GARMIN_PACE_CONFIG=\"\${GARMIN_PACE_CONFIG:-$PROFILE_CONFIG}\"" \
+        "$run" | install_file "$LAUNCHER" 0755
 }
 
 install_release() {

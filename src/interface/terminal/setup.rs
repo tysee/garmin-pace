@@ -8,7 +8,7 @@ use super::{
     capture,
     setup_status::Mark,
     tty::ExitRequested,
-    view::{Choice, Selection, Style},
+    view::{Choice, Selection},
 };
 use crate::{
     config::Settings,
@@ -18,7 +18,7 @@ use crate::{
     },
 };
 use anyhow::{Context, Result, ensure};
-use std::{io, path::PathBuf};
+use std::path::PathBuf;
 
 const STEPS: &[(&str, &str)] = &[
     (
@@ -186,19 +186,14 @@ impl App {
         {
             return Ok(());
         }
-        self.view.frame(
+        let result = self.run_command(
             "Personal API key",
-            &[("Checking access to Garmin...".into(), Style::Plain)],
+            "Checking access to Garmin...",
             "Waiting for Garmin",
-        )?;
-        let result = capture(
-            &self.config,
-            self.env_file.as_deref(),
             Command::Garmin {
                 action: GarminCommand::Check,
             },
-        );
-        rustix::termios::tcflush(io::stdin(), rustix::termios::QueueSelector::IFlush)?;
+        )?;
         self.view.result("Personal API key", &result?)?;
         Ok(())
     }

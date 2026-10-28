@@ -1,6 +1,7 @@
 //! src/installation/supervisor.rs recognizes what keeps MCP running without a terminal.
 //! detect_supervisor finds a Podman container or the installer's systemd unit; service_state
-//! reads that unit through systemctl and start_service enables it now and at boot via sudo.
+//! reads one installer unit (MCP or its HTTPS proxy) through systemctl and start_service enables
+//! the MCP unit now and at boot via sudo.
 
 use anyhow::{Context, Result, bail};
 use std::{fs, io::ErrorKind, path::Path, process::Command};
@@ -10,6 +11,8 @@ const CONTAINER_ENV: &str = "/run/.containerenv";
 /// The unit deploy/install.sh installs; keep in sync with its UNIT variable.
 const UNIT_PATH: &str = "/etc/systemd/system/garmin-pace.service";
 pub const UNIT_NAME: &str = "garmin-pace.service";
+/// The HTTPS proxy unit deploy/https.sh installs; keep in sync with its HTTPS_UNIT variable.
+pub const HTTPS_UNIT_NAME: &str = "garmin-pace-https.service";
 
 /// The process supervisor available to this menu.
 #[derive(Debug, PartialEq)]
@@ -47,23 +50,23 @@ pub struct ServiceState {
     pub enabled: String,
 }
 
-fn systemctl(verb: &str) -> Result<String> {
+fn systemctl(verb: &str, unit: &str) -> Result<String> {
     // is-active and is-enabled report through stdout and exit non-zero for "inactive"/"disabled".
     let output = Command::new("systemctl")
-        .args([verb, UNIT_NAME])
+        .args([verb, unit])
         .output()
         .context("running systemctl")?;
     let state = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if state.is_empty() {
-        bail!("systemctl {verb} {UNIT_NAME} gave no state");
+        bail!("systemctl {verb} {unit} gave no state");
     }
     Ok(state)
 }
 
-pub fn service_state() -> Result<ServiceState> {
+pub fn service_state(unit: &str) -> Result<ServiceState> {
     Ok(ServiceState {
-        active: systemctl("is-active")?,
-        enabled: systemctl("is-enabled")?,
+        active: systemctl("is-active", unit)?,
+        enabled: systemctl("is-enabled", unit)?,
     })
 }
 

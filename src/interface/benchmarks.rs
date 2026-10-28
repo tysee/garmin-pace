@@ -1,4 +1,5 @@
-//! src/interface/benchmarks.rs exposes explicit strength imports and model proposal review.
+//! src/interface/benchmarks.rs exposes explicit strength imports (by window or one stored
+//! activity) and model proposal review.
 //! CLI and terminal delegate validation and journaled saves to the benchmark feature.
 
 use super::{benchmark_view, output::Output};
@@ -11,8 +12,11 @@ use crate::{
     workouts::{
         WorkoutError,
         benchmarks::{
-            ActivitySets, BenchmarkService, Proposal, SqliteBenchmarks, Window,
-            document::{BenchmarkDocument, ContextDocument, DraftDocument, ProposalDocument},
+            ActivitySets, BenchmarkGateway, BenchmarkService, Proposal, SqliteBenchmarks, Window,
+            document::{
+                ActivitySetsDocument, BenchmarkDocument, ContextDocument, DraftDocument,
+                ProposalDocument,
+            },
         },
     },
 };
@@ -30,6 +34,11 @@ pub(super) enum BenchmarkCommand {
         start: Date,
         #[arg(long)]
         end: Date,
+    },
+    /// Import the sets of one locally stored strength activity by its Garmin ID.
+    SyncActivity {
+        #[arg(long)]
+        id: String,
     },
     /// List known benchmarks, including unset entries; no network access.
     List,
@@ -105,6 +114,19 @@ pub(super) fn activity_sets(
     service: &BenchmarkService,
     activity: &Activity,
 ) -> Result<ActivitySets, WorkoutError> {
+    let (id, date) = strength_identity(activity)?;
+    service.activity_sets(id, date)
+}
+/// Import one stored strength activity's sets from Garmin by ID, without an activity search.
+pub(super) fn import_activity_sets(
+    service: &BenchmarkService,
+    gateway: &dyn BenchmarkGateway,
+    activity: &Activity,
+) -> Result<ActivitySets, WorkoutError> {
+    let (id, date) = strength_identity(activity)?;
+    service.import_activity(gateway, id, date, &activity.started_at)
+}
+fn strength_identity(activity: &Activity) -> Result<(u64, Date), WorkoutError> {
     if activity.sport != "strength_training" {
         return Err(WorkoutError::InvalidInput(
             "exercise sets exist only for strength training activities",
@@ -117,7 +139,7 @@ pub(super) fn activity_sets(
     let date = DateTime::parse_from_rfc3339(&activity.started_at)
         .map_err(|_| WorkoutError::InvalidInput("stored activity has an invalid start time"))?
         .date_naive();
-    service.activity_sets(id, Date::from(date))
+    Ok((id, Date::from(date)))
 }
 fn document(file: PathBuf) -> Result<Proposal> {
     let mut bytes = Vec::new();
@@ -150,6 +172,14 @@ pub(super) fn run(
             let count = service.sync(&gateway, window)?;
             return output.message(&json!({"sessions":count,"start":start.to_string(),"end":end.to_string()}),
                 &format!("Imported benchmarks and {count} strength sessions for {start} to {end} UTC.\nNo benchmark values changed. Ask your model to review this evidence when needed."));
+        }
+        BenchmarkCommand::SyncActivity { id } => {
+            let activity = super::cli::history(settings)?
+                .find(&id)?
+                .context("activity is not stored locally; sync activities first")?;
+            let sets = import_activity_sets(&service, &connect()?, &activity)?;
+            let text = benchmark_view::activity_sets(&sets);
+            return output.message(&ActivitySetsDocument::from(sets), &text);
         }
         BenchmarkCommand::List => {
             let rows = service.catalog()?;

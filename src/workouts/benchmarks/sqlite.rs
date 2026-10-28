@@ -74,6 +74,11 @@ fn catalog(db: &Connection, rows: &[Benchmark]) -> Result<()> {
     }
     Ok(())
 }
+fn upsert_session(db: &Connection, session: &StrengthSession) -> Result<(), WorkoutError> {
+    let doc = serde_json::to_string(&SessionDocument::from(session.clone())).map_err(storage)?;
+    db.execute("INSERT INTO strength_sessions VALUES(?1,?2,?3) ON CONFLICT(activity_id) DO UPDATE SET date=excluded.date,document=excluded.document",params![sql_id(session.activity_id)?,session.date.to_string(),doc]).map_err(storage)?;
+    Ok(())
+}
 impl BenchmarkRepository for SqliteBenchmarks {
     fn catalog(&self) -> Result<Vec<Benchmark>, WorkoutError> {
         let db = self.storage.connection(false).map_err(storage)?;
@@ -118,11 +123,15 @@ impl BenchmarkRepository for SqliteBenchmarks {
         )
         .map_err(storage)?;
         for session in &import.sessions {
-            let doc =
-                serde_json::to_string(&SessionDocument::from(session.clone())).map_err(storage)?;
-            tx.execute("INSERT INTO strength_sessions VALUES(?1,?2,?3) ON CONFLICT(activity_id) DO UPDATE SET date=excluded.date,document=excluded.document",params![sql_id(session.activity_id)?,session.date.to_string(),doc]).map_err(storage)?;
+            upsert_session(&tx, session)?;
         }
         tx.execute("INSERT INTO strength_imports VALUES(?1,?2,?3) ON CONFLICT(start,end) DO UPDATE SET synced_at=excluded.synced_at",params![import.window.start.to_string(),import.window.end.to_string(),import.synced_at]).map_err(storage)?;
+        tx.commit().map_err(storage)
+    }
+    fn import_session(&self, session: &StrengthSession) -> Result<(), WorkoutError> {
+        let mut db = self.storage.connection(true).map_err(storage)?;
+        let tx = db.transaction().map_err(storage)?;
+        upsert_session(&tx, session)?;
         tx.commit().map_err(storage)
     }
     fn evidence(&self, key: &str, window: Window) -> Result<Evidence, WorkoutError> {

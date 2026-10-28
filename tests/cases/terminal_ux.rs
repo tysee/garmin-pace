@@ -473,3 +473,78 @@ fn coach_sessions_open_steps_and_library_excludes_plan_workouts() -> Result<()> 
     }
     Ok(())
 }
+
+#[test]
+fn menu_imports_one_strength_activity_sets_by_id() -> Result<()> {
+    let f = Fixture::new()?;
+    f.init()?;
+    crate::benchmarks::seed_activity(&f)?;
+    // The exercise sets request is the only Garmin exchange the menu import may make.
+    let server = Server::start(vec![(
+        "GET",
+        crate::benchmarks::SETS,
+        200,
+        crate::benchmarks::sets().to_string(),
+    )])?;
+    configure_connect(&f, &server.base)?;
+    let mut ui = Session::start(&f, 80, 24, true)?;
+    ui.until("Search actions")?;
+    ui.search("Activities")?;
+    ui.until("Activities 1-1")?;
+    ui.send(b"\r")?;
+    ui.until("> View details")?;
+    ui.send(b"\r")?;
+    ui.until("Sets: not synced")?;
+    ui.send(b"\x1b")?;
+    ui.until("> View details")?;
+    ui.send(b"\x1b[B")?;
+    ui.until("> Import sets from Garmin")?;
+    ui.send(b"\r")?;
+    ui.until("2. barbell row | 60.0 kg | 4 reps")?;
+    ui.send(b"\x1b")?;
+    ui.until("> Import sets from Garmin")?;
+    ui.exit()?;
+    server.finish()
+}
+
+#[test]
+fn menu_changes_the_garmin_proxy_and_refuses_an_unreadable_ca_file() -> Result<()> {
+    let f = Fixture::new()?;
+    let mut ui = Session::start(&f, 100, 24, true)?;
+    ui.until("Search actions")?;
+    ui.search("Garmin network")?;
+    ui.until("> Proxy URL")?;
+    ensure!(ui.saw("from the environment apply"));
+    ui.send(b"\r")?;
+    ui.until("blank = use environment")?;
+    ui.send(b"http://proxy.test:3128\r")?;
+    ui.until("Saved. A running MCP server applies it after a restart.")?;
+    ui.send(b"\x1b")?;
+    ui.until("http://proxy.test:3128; replaces the environment's proxy")?;
+    let edited = std::fs::read_to_string(&f.config)?;
+    ensure!(edited.contains("\nproxy_url = \"http://proxy.test:3128\"\n"));
+    ui.send(b"\x1b[B")?;
+    ui.until("> Extra CA file")?;
+    ui.send(b"\r")?;
+    ui.until("blank = none")?;
+    ui.send(b"missing.pem\r")?;
+    ui.until("Action failed")?;
+    ensure!(ui.saw("garmin.extra_ca_file"));
+    ensure!(std::fs::read_to_string(&f.config)? == edited);
+    ui.send(b"\x1b")?;
+    ui.until("> Extra CA file")?;
+    ui.exit()
+}
+
+#[test]
+fn menu_internet_access_names_the_system_install_off_a_service_host() -> Result<()> {
+    let f = Fixture::new()?;
+    let mut ui = Session::start(&f, 100, 24, true)?;
+    ui.until("Search actions")?;
+    ui.search("Internet access")?;
+    ui.until("No Pace system service on this host")?;
+    ensure!(ui.saw("never expose port 8080 directly"));
+    ui.send(b"\x1b")?;
+    ui.until("> @ Internet access (HTTPS)")?;
+    ui.exit()
+}

@@ -33,5 +33,11 @@ mod benchmarks;
 #[path = "cases/https.rs"]
 mod https;
 
+#[path = "cases/doctor.rs"]
+mod doctor;
+
 #[path = "cases/coach.rs"]
 mod coach;
+
+#[path = "cases/full_sync.rs"]
+mod full_sync;

@@ -9,7 +9,12 @@ Complete [setup](getting-started.md) first. The examples assume `pace` is on PAT
 key file. Replace the example dates with your own period.
 
 ```sh
-# Read Garmin and update the local activity cache.
+# Import everything for a period: activities, strength sets, health, Coach.
+pace sync --start 2026-10-19 --end 2026-10-25
+# After a failure or a stop, continue where it ended.
+pace sync --resume
+
+# Or import one dataset: the local activity cache only.
 pace --env-file .env garmin sync --start 2026-10-19 --end 2026-10-25
 
 # Search saved history without contacting Garmin.
@@ -34,8 +39,23 @@ the wake-up day. Near midnight these scopes may differ.
 
 Health imports cover at most 31 days per CLI call and commit each day atomically.
 An activity period imports page by page. Completed pages and days survive a later
-failure. In the terminal, **Sync activities** and **Health → Import health** offer
-date shortcuts and explicit confirmation; viewing saved data never starts a sync.
+failure.
+
+`pace sync` (menu: **Sync everything**) runs the steps in order over windows aligned
+to the period start: activities in 31-day windows, strength sets in 31-day windows,
+health one day at a time and Coach in 7-day windows, for up to 366 days. Activities
+need the Personal API key; health and strength need the key and the Connect login;
+Coach needs the login. A step whose credential is missing is skipped with the reason.
+The first failed window ends its own step, and the later steps still run. Each window
+is journaled in the profile database as it finishes, so the report says per step
+whether it is complete, partial (with the failing window and cause), failed or
+skipped, and the command exits non-zero unless every step is complete.
+`pace sync --resume` continues the latest unfinished run and skips the windows it
+already imported; a plain `pace sync` always fetches the whole period again, so
+today's data is refreshed. Reads retry within the Garmin request bounds; writes
+are never part of a sync. In the terminal, **Sync everything**, **Sync activities**
+and **Health → Import health** offer date shortcuts and explicit confirmation;
+viewing saved data never starts a sync.
 
 ## Understand freshness and missing data
 
@@ -53,13 +73,19 @@ not measured samples. Missing values are never replaced with zero.
 
 ```sh
 pace --env-file .env benchmark sync --start 2026-10-01 --end 2026-10-25
+pace benchmark sync-activity --id 501
 pace benchmark list
 pace benchmark context --key BARBELL_BENCH_PRESS --start 2026-10-01 --end 2026-10-25
 ```
 
-Open **Activities**, choose a stored strength activity, and inspect its sets.
-An assistant uses `get_activity_sets_v1` with that activity's Garmin ID. Sets are
-available only after a strength import covered its UTC date. Category-only records
+Open **Activities**, choose a stored strength activity, and inspect its sets or
+import them from Garmin. `benchmark sync-activity --id ID` (menu: **Import sets from
+Garmin**) reads only that activity's sets with the Connect session: no Personal API
+token, activity search or benchmark catalogue. It does not mark the date as covered
+for other activities.
+An assistant uses `get_activity_sets_v1` with that activity's Garmin ID, and with the
+Garmin grant can import them with `sync_activity_sets_v1`. Sets are
+available only after a strength import covered its UTC date or imported that activity. Category-only records
 remain visible but cannot establish an exact exercise's benchmark.
 
 See [benchmark proposals](workouts.md#benchmark-exercises) for the separate

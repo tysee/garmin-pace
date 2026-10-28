@@ -1,6 +1,6 @@
 [package]
 name = "garmin-pace"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
@@ -23,6 +23,8 @@ rpassword = "=7.5.4"
 ring = "=0.17.14"
 rustix = { version = "=1.1.5", features = ["termios", "fs", "process"] }
 dotenvy = "=0.15.7"
+# Already locked under reqwest: its environment proxy matcher reports the exact per-URL route.
+hyper-util = { version = "=0.1.21", default-features = false, features = ["client-proxy"] }
 chrono = { version = "=0.4.45", default-features = false, features = ["std", "now"] }
 clap = { version = "=4.6.7", features = ["derive", "env"] }
 rmcp = { version = "=3.7.0", default-features = false, features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }

@@ -27,7 +27,7 @@ pub struct GarminBenchmarks {
     personal: Option<PersonalApi>,
 }
 impl GarminBenchmarks {
-    /// Native auth is required; Personal API credentials are required only for strength imports.
+    /// Native auth is required; Personal API credentials are required only for window imports.
     pub fn connect(
         settings: &GarminSettings,
         auth: &GarminAuthSettings,
@@ -47,6 +47,15 @@ impl GarminBenchmarks {
                 .json(Method::GET, "/workout-service/benchmarks", &[], None)?;
         ensure!(rows.len() <= 128, "benchmark catalogue exceeds 128 entries");
         Ok(rows)
+    }
+    fn read_sets(&self, id: u64) -> Result<Vec<ObservedSet>> {
+        let value: Value = self.native.http.json(
+            Method::GET,
+            &format!("/activity-service/activity/{id}/exerciseSets"),
+            &[],
+            None,
+        )?;
+        benchmark_decode::sets(&value, id)
     }
     fn import_strength(&self, window: Window) -> Result<StrengthImport> {
         let api = self
@@ -115,19 +124,12 @@ impl GarminBenchmarks {
                 continue;
             }
             let id = activity.garmin_id.parse::<u64>()?;
-            let value: Value = self.native.http.json(
-                Method::GET,
-                &format!("/activity-service/activity/{id}/exerciseSets"),
-                &[],
-                None,
-            )?;
-            let sets = benchmark_decode::sets(&value, id)?;
             sessions.push(StrengthSession {
                 activity_id: id,
                 date,
                 started_at: activity.started_at,
                 synced_at: now.clone(),
-                sets,
+                sets: self.read_sets(id)?,
             });
         }
         Ok(StrengthImport {
@@ -157,6 +159,20 @@ impl BenchmarkGateway for GarminBenchmarks {
     }
     fn strength(&self, window: Window) -> Result<StrengthImport, WorkoutError> {
         self.import_strength(window).map_err(upstream)
+    }
+    fn activity_session(
+        &self,
+        activity_id: u64,
+        date: Date,
+        started_at: &str,
+    ) -> Result<StrengthSession, WorkoutError> {
+        Ok(StrengthSession {
+            activity_id,
+            date,
+            started_at: started_at.to_owned(),
+            synced_at: chrono::Utc::now().to_rfc3339(),
+            sets: self.read_sets(activity_id).map_err(upstream)?,
+        })
     }
     fn save(&self, source: &Benchmark, proposal: &Proposal) -> Result<(), WorkoutError> {
         let rows = self.read_catalog().map_err(upstream)?;

@@ -16,11 +16,13 @@ use serde_json::json;
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SearchInput {
-    /// Inclusive UTC date, YYYY-MM-DD. This differs from Garmin's local-date sync filter.
-    start: String,
-    end: String,
+    /// Optional inclusive UTC date, YYYY-MM-DD. This differs from Garmin's local-date sync filter.
+    start: Option<String>,
+    end: Option<String>,
     /// Exact sport key from stored activities; omitted includes all sports.
     sport: Option<String>,
+    /// Literal, ASCII case-insensitive substring of the activity name.
+    name: Option<String>,
     limit: usize,
     offset: Option<usize>,
 }
@@ -52,7 +54,7 @@ impl HistoryMcp {
             let _permit = permit;
             let history = profile.history.summary().map_err(history_error)?;
             let health = profile.health.summary().map_err(super::mcp::health_error)?;
-            Ok(json!({"contract_version":1,"toolset_version":"2026-10-27-coach-targets.1","coach_support":{"window_days":7,"relative_load":true,"minimum_repetitions":true,"adaptation":"reviewed_drafts","rescheduling":false},"garmin_access":allowed,
+            Ok(json!({"contract_version":1,"toolset_version":"2026-10-28-interface-parity.1","coach_support":{"window_days":7,"relative_load":true,"minimum_repetitions":true,"adaptation":"reviewed_drafts","rescheduling":false},"garmin_access":allowed,
                 "garmin_operation_running":busy,"history":StatusResponse::from(history),
                 "health":{"day_count":health.day_count,"latest":health.latest.map(|d|d.to_string())},
                 "watch_receipt_supported":false,"sync_credentials":"profile_private_file"}))
@@ -60,7 +62,7 @@ impl HistoryMcp {
         result(value)
     }
     #[tool(
-        description = "Search stored activities by inclusive UTC dates and optional exact sport, newest first, with limit and offset. Returns next_offset; a full page may be followed by an empty page. No Garmin refresh occurs; use sync_activities_v1 explicitly when needed.",
+        description = "Search stored activities, newest first, by optional inclusive UTC dates, exact sport and literal name substring, with limit and offset. Omitting every filter pages the whole local history. Returns the matching total and next_offset; a full page may be followed by an empty page. No Garmin refresh occurs; use sync_activities_v1 explicitly when needed.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -72,23 +74,17 @@ impl HistoryMcp {
         Parameters(input): Parameters<SearchInput>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        let date = |value: Option<String>| {
+            value
+                .map(|v| v.parse::<Date>().map(Into::into))
+                .transpose()
+                .map_err(super::mcp::health_error)
+        };
         let query = ActivityQuery {
-            start: Some(
-                input
-                    .start
-                    .parse::<Date>()
-                    .map_err(super::mcp::health_error)?
-                    .into(),
-            ),
-            end: Some(
-                input
-                    .end
-                    .parse::<Date>()
-                    .map_err(super::mcp::health_error)?
-                    .into(),
-            ),
+            start: date(input.start)?,
+            end: date(input.end)?,
             sport: input.sport,
-            name: None,
+            name: input.name,
             limit: input.limit,
             offset: input.offset.unwrap_or(0),
         };
@@ -96,9 +92,10 @@ impl HistoryMcp {
         let permit = self.blocking_permit().await?;
         let value = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            let rows = history.search(&query).map_err(history_error)?.activities;
+            let page = history.search(&query).map_err(history_error)?;
+            let rows = page.activities;
             let next = (rows.len()==query.limit).then_some(query.offset+rows.len());
-            Ok(json!({"activities":rows.into_iter().map(ActivityResponse::from).collect::<Vec<_>>(),"next_offset":next,"scope":"local_snapshot","date_basis":"UTC"}))
+            Ok(json!({"activities":rows.into_iter().map(ActivityResponse::from).collect::<Vec<_>>(),"total":page.total,"next_offset":next,"scope":"local_snapshot","date_basis":"UTC"}))
         }).await.map_err(join_error)??;
         result(value)
     }

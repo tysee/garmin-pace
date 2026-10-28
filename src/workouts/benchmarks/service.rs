@@ -12,6 +12,13 @@ use std::sync::Arc;
 pub trait BenchmarkGateway {
     fn catalog(&self) -> Result<Vec<Benchmark>, WorkoutError>;
     fn strength(&self, window: Window) -> Result<StrengthImport, WorkoutError>;
+    /// Read one known activity's sets by ID; no activity search or catalogue read.
+    fn activity_session(
+        &self,
+        activity_id: u64,
+        date: Date,
+        started_at: &str,
+    ) -> Result<StrengthSession, WorkoutError>;
     /// Conflict and Rejected mean no write was applied; preserve linked exercise mappings.
     fn save(&self, source: &Benchmark, proposal: &Proposal) -> Result<(), WorkoutError>;
 }
@@ -20,6 +27,8 @@ pub trait BenchmarkRepository: Send + Sync {
     fn catalog(&self) -> Result<Vec<Benchmark>, WorkoutError>;
     fn replace_catalog(&self, rows: &[Benchmark]) -> Result<(), WorkoutError>;
     fn import(&self, catalog: &[Benchmark], import: &StrengthImport) -> Result<(), WorkoutError>;
+    /// Replace one activity's session without recording window coverage for its date.
+    fn import_session(&self, session: &StrengthSession) -> Result<(), WorkoutError>;
     fn evidence(&self, key: &str, window: Window) -> Result<Evidence, WorkoutError>;
     /// Read one activity's imported sets with the import that covered its UTC date.
     fn activity_sets(&self, activity_id: u64, date: Date) -> Result<ActivitySets, WorkoutError>;
@@ -85,6 +94,26 @@ impl BenchmarkService {
         if activity_id == 0 {
             return Err(WorkoutError::InvalidInput("activity ID must be positive"));
         }
+        self.repository.activity_sets(activity_id, date)
+    }
+    /// Import the sets of one strength activity already stored locally, by its Garmin ID.
+    pub fn import_activity(
+        &self,
+        gateway: &dyn BenchmarkGateway,
+        activity_id: u64,
+        date: Date,
+        started_at: &str,
+    ) -> Result<ActivitySets, WorkoutError> {
+        if activity_id == 0 {
+            return Err(WorkoutError::InvalidInput("activity ID must be positive"));
+        }
+        let session = gateway.activity_session(activity_id, date, started_at)?;
+        if session.activity_id != activity_id || session.date != date || session.sets.len() > 500 {
+            return Err(WorkoutError::InvalidInput(
+                "activity sets exceeded their requested bounds",
+            ));
+        }
+        self.repository.import_session(&session)?;
         self.repository.activity_sets(activity_id, date)
     }
     /// Import a complete bounded strength window before publishing any of its sets.

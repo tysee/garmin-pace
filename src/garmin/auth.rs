@@ -50,13 +50,8 @@ struct AuthHttp<'a> {
 impl<'a> AuthHttp<'a> {
     fn new(auth: &'a GarminAuthSettings, network: &'a GarminSettings) -> Result<Self> {
         auth.validate()?;
-        network.validate()?;
-        let client = Client::builder()
+        let client = super::http::client_builder(network)?
             .cookie_store(true)
-            .timeout(Duration::from_secs(network.request_timeout_seconds))
-            .connect_timeout(Duration::from_secs(network.connect_timeout_seconds))
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
             .build()?;
         Ok(Self {
             client,
@@ -65,9 +60,10 @@ impl<'a> AuthHttp<'a> {
         })
     }
     fn body(&self, response: Result<Response, reqwest::Error>, stage: &str) -> Result<Vec<u8>> {
-        let response = response.map_err(|_| {
+        let response = response.map_err(|error| {
             anyhow::anyhow!(
-                "Garmin authentication network failure during {stage}; retry login explicitly"
+                "Garmin authentication network failure during {stage}: {}; retry login explicitly after `pace doctor` passes",
+                super::http::describe(&error, self.network)
             )
         })?;
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -290,8 +286,9 @@ fn build_session(
 }
 
 /// Return local token expiry only, without claiming that Garmin still accepts the session.
+/// Reads need no lock, so status checks never wait for a running refresh.
 pub fn session_expiry(auth: &GarminAuthSettings) -> Result<i64> {
-    Ok(SessionStore::lock(&auth.session_path)?.load()?.expires_at)
+    Ok(super::session::read(&auth.session_path)?.expires_at)
 }
 /// Report saved-session expiry, or None without touching the filesystem when no session exists.
 pub fn saved_session_expiry(auth: &GarminAuthSettings) -> Result<Option<i64>> {

@@ -173,7 +173,7 @@ fn history_search_filters_pages_and_uses_sport_date_index() -> Result<()> {
     let plan:String=db.query_row("EXPLAIN QUERY PLAN SELECT garmin_id FROM activities WHERE sport=?1 AND started_at>=?2 AND started_at<?3 ORDER BY started_at DESC,garmin_id DESC LIMIT ?4 OFFSET ?5",rusqlite::params!["running","2026-10-01T00:00:00","2026-10-03T00:00:00",1,0],|r|r.get(3))?;
     ensure!(plan.contains("activities_sport_chronological"), "{plan}");
     // Reproduce a real v7 database and prove the forward migration preserves rows.
-    db.execute_batch("DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; PRAGMA user_version=7;")?;
+    db.execute_batch("DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; PRAGMA user_version=7;")?;
     assert!(SqliteHistory::open(fixture.settings.database.clone()).is_err());
     fixture.init()?;
     assert_eq!(service.summary()?.activity_count, 3);
@@ -214,6 +214,7 @@ fn granted_agent_syncs_all_sources_reads_evidence_and_updates_same_workout() -> 
         token(),
         ("GET", CATALOG, 200, json!([remote(false, 0.0)]).to_string()),
         ("GET", ACTIVITIES, 200, activity().to_string()),
+        ("GET", SETS, 200, sets().to_string()),
         ("GET", SETS, 200, sets().to_string()),
         (
             "GET",
@@ -269,6 +270,13 @@ fn granted_agent_syncs_all_sources_reads_evidence_and_updates_same_workout() -> 
         json!({"start":"2026-10-20","end":"2026-10-24","sport":"strength_training","limit":10}),
     )?;
     assert_eq!(matches["activities"][0]["garmin_id"], "501");
+    assert_eq!(matches["total"], 1);
+    let undated = http.content(
+        "search_activities_v1",
+        json!({"sport":"strength_training","limit":10}),
+    )?;
+    assert_eq!(undated["total"], 1);
+    assert_eq!(undated["activities"][0]["garmin_id"], "501");
     assert_eq!(
         http.content("get_activity_v1", json!({"garmin_id":"501"}))?["activity"]["sport"],
         "strength_training"
@@ -278,6 +286,13 @@ fn granted_agent_syncs_all_sources_reads_evidence_and_updates_same_workout() -> 
         http.content("get_activity_sets_v1", json!({"garmin_id":"501"}))?["sets"]["status"],
         "available"
     );
+    // A per-activity import reads only that activity's sets: no token or search request.
+    let single = http.content(
+        "sync_activity_sets_v1",
+        json!({"garmin_id":"501","user_request":ask}),
+    )?;
+    assert_eq!(single["activity"]["garmin_id"], "501");
+    assert_eq!(single["sets"]["status"], "available");
     let evidence = http.content(
         "get_benchmark_context_v1",
         json!({"key":"BARBELL_ROW","start":"2026-10-20","end":"2026-10-24"}),
@@ -307,6 +322,8 @@ fn granted_agent_syncs_all_sources_reads_evidence_and_updates_same_workout() -> 
     )?;
     assert_eq!(empty["deliveries"], json!([]));
     assert_eq!(empty["watch_receipt"], "unconfirmed");
+    let every_device = http.content("get_workout_deliveries_v1", json!({"workout_id":777}))?;
+    assert_eq!(every_device["deliveries"], json!([]));
     garmin.finish()?;
     http.stop()
 }
@@ -355,6 +372,10 @@ fn sync_requires_profile_file_and_grant_and_rejects_invalid_inputs() -> Result<(
             json!({"limit":101,"user_request":"Import"}),
         ),
         (
+            "sync_activity_sets_v1",
+            json!({"garmin_id":"","user_request":"Import"}),
+        ),
+        (
             "refresh_workout_v1",
             json!({"id":0,"user_request":"Refresh"}),
         ),
@@ -362,6 +383,13 @@ fn sync_requires_profile_file_and_grant_and_rejects_invalid_inputs() -> Result<(
     ] {
         assert!(http.call(name, args)?["error"].is_object(), "{name}");
     }
+    let long = http.call(
+        "sync_activities_v1",
+        json!({"limit":1,"start":"2026-01-01","end":"2026-10-01","user_request":"Import"}),
+    )?;
+    let message = long["error"]["message"].as_str().context("period error")?;
+    assert!(message.contains("activity period"), "{message}");
+    assert!(!message.contains("benchmark"), "{message}");
     let denied = fixture
         .command()
         .args(["users", "deny-garmin-writes", "owner"])

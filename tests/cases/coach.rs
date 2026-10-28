@@ -175,8 +175,14 @@ fn agent_reads_coach_proposes_reviews_saves_and_delivers_same_plan_workout() -> 
         json!({"workout_id":777,"device_id":99}),
     )?;
     assert_eq!(delivery["deliveries"][0]["state"], "queued");
+    let every_device = http.content("get_workout_deliveries_v1", json!({"workout_id":777}))?;
+    assert_eq!(every_device["deliveries"][0]["device_id"], 99);
     let source = http.content("get_workout_v1", json!({"id":777}))?;
     assert_eq!(source["coach_plan_id"], 42);
+    let library = http.content("list_workouts_v1", json!({}))?;
+    assert_eq!(library["workouts"][0]["id"], 777);
+    let standalone = http.content("list_workouts_v1", json!({"standalone":true}))?;
+    assert_eq!(standalone["workouts"], json!([]));
     assert_eq!(delivery["deliveries"][0]["revision"], source["revision"]);
     g.finish()?;
     http.stop()

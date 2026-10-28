@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "garmin-pace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -594,6 +594,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
+ "hyper-util",
  "reqwest",
  "ring",
  "rmcp",

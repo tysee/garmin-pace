@@ -66,7 +66,7 @@ pub(super) fn activity_sets(data: &ActivitySets) -> String {
                 data.date
             ),
             None => format!(
-                "Sets: not synced. Use Benchmarks > Sync strength data with a window covering {}.",
+                "Sets: not synced. Import this activity's sets, or sync strength data for a window covering {}.",
                 data.date
             ),
         };

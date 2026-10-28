@@ -81,7 +81,7 @@ impl App {
     }
 
     fn systemd_service(&mut self, server: &Path, settings: &Settings, running: bool) -> Result<()> {
-        let state = installation::service_state()?;
+        let state = installation::service_state(UNIT_NAME)?;
         let bind = settings.http.bind;
         let summary = format!("{UNIT_NAME}: {}, {} at boot", state.active, state.enabled);
         if running {
@@ -128,7 +128,7 @@ impl App {
         )?;
         for _ in 0..START_PROBES {
             if installation::probe_service(settings)? == ServiceProbe::Running {
-                let state = installation::service_state()?;
+                let state = installation::service_state(UNIT_NAME)?;
                 self.view.result("Start MCP", &format!("√ MCP is running on {}.\n{UNIT_NAME}: {}, {} at boot (was: {before}).\nClosing this menu does not stop it.\n\nLogs: journalctl -u {UNIT_NAME} -f", settings.http.bind, state.active, state.enabled))?;
                 return Ok(());
             }

@@ -111,7 +111,8 @@ The imported sets of one activity are also readable per activity with
 activity's details. A set Garmin recorded without one exact exercise keeps only
 its category; such sets are shown but never count as benchmark evidence.
 
-CLI: `benchmark sync --start DATE --end DATE`, `benchmark list`,
+CLI: `benchmark sync --start DATE --end DATE`, `benchmark sync-activity --id ID`,
+`benchmark list`,
 `benchmark context --key KEY --start DATE --end DATE`, `benchmark propose --file FILE`,
 `benchmark drafts`, `benchmark review --id ID`,
 `benchmark revise --id ID --revision N --file FILE`,

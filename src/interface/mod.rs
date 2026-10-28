@@ -2,6 +2,9 @@
 //! Only these adapters serialize domain records and decide process responses.
 
 pub mod cli;
+mod cli_reference;
+mod doctor;
+mod full_sync;
 mod garmin;
 mod health;
 mod health_responses;

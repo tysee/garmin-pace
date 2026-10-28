@@ -4,9 +4,13 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use garmin_pace::interface::cli::{Cli, run};
+use garmin_pace::interface::cli::{Cli, full_help, run};
 
 fn main() -> ExitCode {
+    if let Some(text) = full_help(std::env::args_os()) {
+        print!("{text}");
+        return ExitCode::SUCCESS;
+    }
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

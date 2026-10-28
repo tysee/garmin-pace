@@ -23,6 +23,16 @@ struct PageInput {
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct LibraryInput {
+    /// 1..100; omitted uses 20. Library is a local snapshot; refresh through Pace.
+    limit: Option<usize>,
+    /// Zero-based offset, at most 100000.
+    offset: Option<usize>,
+    /// True excludes Coach plan workouts, which get_coach_v1 reads by week.
+    standalone: Option<bool>,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct IdInput {
     id: u64,
 }
@@ -57,7 +67,7 @@ struct ReviseInput {
 #[tool_router(router = workout_tools, vis = "pub(super)")]
 impl HistoryMcp {
     #[tool(
-        description = "List a page of the user's locally synchronized Garmin workout library. These are reusable definitions, not completed activities. Empty means not imported or no workouts; ask the user to sync in Pace. Read a definition before editing.",
+        description = "List a page of the user's locally synchronized Garmin workout library. These are reusable definitions, not completed activities; standalone=true excludes Coach plan workouts. Empty means not imported or no workouts; ask the user to sync in Pace. Read a definition before editing.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -66,12 +76,16 @@ impl HistoryMcp {
     )]
     async fn list_workouts_v1(
         &self,
-        Parameters(input): Parameters<PageInput>,
+        Parameters(input): Parameters<LibraryInput>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         self.workout_call(&context, move |service| {
             let (limit, offset) = (input.limit.unwrap_or(20), input.offset.unwrap_or(0));
-            let rows = service.list(limit, offset)?;
+            let rows = if input.standalone == Some(true) {
+                service.standalone(limit, offset)?
+            } else {
+                service.list(limit, offset)?
+            };
             Ok(
                 json!({"workouts":rows.iter().map(super::workout_view::summary).collect::<Vec<_>>(),
                 "next_offset":if rows.len()==limit { Some(offset+limit) } else { None }}),

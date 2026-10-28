@@ -284,9 +284,9 @@ fn menu_groups_actions_under_headings_and_searches_flat() -> Result<()> {
         // Down skips the heading row and lands on the first item of the next section.
         session.send(b"\x1b[B")?;
         session.until("> ≡ Status")?;
-        session.send(b"\x1b[B\x1b[B\x1b[B\x1b[B")?;
+        session.send(b"\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B")?;
         session.until("> → Garmin login")?;
-        session.until("6/19")?;
+        session.until("7/22")?;
         session.send(b"/")?;
         session.until("/ _")?;
         session.send(b"config")?;
@@ -456,7 +456,9 @@ fn terminal_setup_history_and_draft_cancel_flow() -> Result<()> {
     session.until("Test run")?;
     assert!(session.received.contains("5.00 km"));
     assert!(!session.received.contains("fixture-1"));
-    // Enter opens the newest activity: a strength session listing its imported sets.
+    // Enter opens the newest activity: a strength session offering details or a sets import.
+    session.send(b"\r")?;
+    session.until("Import sets from Garmin")?;
     session.send(b"\r")?;
     session.until("2. barbell row | 60.0 kg | 4 reps")?;
     assert!(
@@ -465,6 +467,8 @@ fn terminal_setup_history_and_draft_cancel_flow() -> Result<()> {
             .contains("6. row (category) | 80.0 kg | 10 reps")
     );
     assert!(session.received.contains("Rest sets: 1"));
+    session.send(b"\x1b")?;
+    session.until("> View details")?;
     session.send(b"\x1b")?;
     session.until("Activities 1-3")?;
     session.send(b"\x1b[B")?;

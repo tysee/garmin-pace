@@ -47,6 +47,45 @@ history.
   then stores refreshable tokens. Your password is not stored. This uses unofficial
   Connect endpoints, which Garmin may change or block.
 
+### Network path, proxies and trust roots
+
+Garmin requests honor `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` from the environment
+of the process that runs Pace, and on Linux the trust store named by `SSL_CERT_FILE`
+or `SSL_CERT_DIR`. A new terminal, service or agent tool starts with its own
+environment, so these values do not carry over by themselves. To pin them for every
+launch of a profile, set them in `[garmin]`:
+
+```toml
+proxy_url = "http://proxy.internal:3128"   # replaces the environment's proxy
+extra_ca_file = "egress-ca.pem"            # PEM roots added to the platform store
+```
+
+`proxy_url` takes no credentials, path or query; a proxy that needs credentials stays
+in the environment. TLS verification is never disabled. Relative paths resolve beside
+the config file.
+
+To change them without an editor, open **Configuration → Garmin network** in the menu
+or run `pace config network` (no flags shows the current values; `--proxy-url URL`,
+`--clear-proxy`, `--extra-ca-file PATH`, `--clear-ca`). Only those two lines of
+`[garmin]` change; comments and every other setting stay byte-identical. The candidate
+is validated (proxy form, readable PEM roots) before it atomically replaces the file,
+so a rejected value leaves the file untouched. The editor refuses a symbolic link and
+needs write access to the config directory; a running MCP server applies the change
+after a restart. The menu screen also runs `pace doctor` on request.
+
+These keys cover every Garmin request, including the MCP server's. Incoming MCP
+traffic has no proxy setting here: public access goes through the managed HTTPS
+proxy, shown under **Configuration → Internet access (HTTPS)** (see
+[deployment](deployment.md)).
+
+`pace doctor` sends one keyless HTTPS request to each Garmin host (Personal API,
+Connect, SSO, token) through the same client, and prints each host's route (direct or
+which proxy, after NO_PROXY exemptions) and the trust settings in effect. Any HTTP status, including 401 or 404, proves the path but says nothing
+about keys; a failure names its cause: DNS, proxy unreachable, proxy refused the
+tunnel, untrusted certificate, timeout or connection refused. Run it from the same
+terminal, service or agent tool that will run Pace, before entering a key. Sync and
+login errors carry the same cause, host and route, never URLs, headers or keys.
+
 Health sync needs both credentials because it imports all eight datasets. The
 official [Training API](https://developer.garmin.com/gc-developer-program/enterprise/training-api/)
 is not implemented; a Personal API key cannot write workouts.

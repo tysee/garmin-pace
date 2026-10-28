@@ -1,6 +1,7 @@
 //! src/interface/terminal/setup_sync.rs lets the menu import activities by count or by period.
 //! App::sync_mode asks which; App::import_period reads START [END] (END defaults to today,
-//! UTC) and imports the period page by page with progress. Esc stops before the next page.
+//! UTC) and App::import_activity_period, also used by date presets, imports the period page
+//! by page with progress. Esc stops before the next page.
 
 use super::{
     App,
@@ -15,6 +16,7 @@ use crate::{
     secrets::Secrets,
 };
 use anyhow::{Context, Result};
+use chrono::NaiveDate;
 use std::{io, ops::ControlFlow};
 
 impl App {
@@ -48,6 +50,18 @@ impl App {
             return Ok(());
         };
         let (start, end) = parse_range(&input, today)?;
+        self.import_activity_period(title, start, end)
+    }
+
+    /// Import every activity page in an inclusive period with progress; shared by the custom
+    /// period prompt and the date presets.
+    pub(super) fn import_activity_period(
+        &mut self,
+        title: &str,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Result<()> {
+        let settings = Settings::load(&self.config)?;
         let period = ActivityPeriod::new(start, end)?;
         let secrets = Secrets::load(self.env_file.as_deref())?;
         let _reporting = self.report_rate_waits()?;

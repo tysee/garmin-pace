@@ -567,16 +567,59 @@ fn benchmark_migration_preserves_existing_workout_drafts() -> Result<()> {
     crate::workouts::seed_draft(&f)?;
     let db = rusqlite::Connection::open(&f.settings.database.path)?;
     // A real schema-5 database has neither the benchmark tables nor the MCP request journal.
-    db.execute_batch("DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; DROP TABLE benchmark_drafts; DROP TABLE strength_imports; DROP TABLE strength_sessions; DROP TABLE benchmark_catalog; ALTER TABLE workout_drafts DROP COLUMN mcp_request; ALTER TABLE workout_deliveries DROP COLUMN mcp_request; PRAGMA user_version=5;")?;
+    db.execute_batch("DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; DROP TABLE benchmark_drafts; DROP TABLE strength_imports; DROP TABLE strength_sessions; DROP TABLE benchmark_catalog; ALTER TABLE workout_drafts DROP COLUMN mcp_request; ALTER TABLE workout_deliveries DROP COLUMN mcp_request; PRAGMA user_version=5;")?;
     f.init()?;
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
-        10
+        11
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM workout_drafts", [], |r| r
             .get::<_, i64>(0))?,
         1
     );
+    Ok(())
+}
+#[test]
+fn cli_imports_one_stored_activity_by_id_without_search_or_token() -> Result<()> {
+    let f = Fixture::new()?;
+    f.init()?;
+    seed_activity(&f)?;
+    // Only the exercise sets request is scripted: no token, activity search or catalogue.
+    let server = Server::start(vec![("GET", SETS, 200, sets().to_string())])?;
+    configure(&f, &server.base)?;
+    configure_connect(&f, &server.base)?;
+    let fails = |args: &[&str]| -> Result<String> {
+        let output = f.command().arg("benchmark").args(args).output()?;
+        ensure!(!output.status.success(), "command unexpectedly succeeded");
+        Ok(String::from_utf8_lossy(&output.stderr).into_owned())
+    };
+    assert!(fails(&["sync-activity", "--id", "absent"])?.contains("not stored locally"));
+    let imported = invoke(&f, &["sync-activity", "--id", "501"])?;
+    server.finish()?;
+    assert_eq!(imported["status"], "available");
+    assert_eq!(imported["date"], "2026-10-23");
+    assert!(imported["import_synced_at"].is_null());
+    assert_eq!(
+        imported["session"]["sets"]
+            .as_array()
+            .context("imported sets")?
+            .len(),
+        6
+    );
+    // The single import covers no date window, so other activities keep their status.
+    let db = rusqlite::Connection::open(&f.settings.database.path)?;
+    let windows: i64 = db.query_row("SELECT COUNT(*) FROM strength_imports", [], |r| r.get(0))?;
+    assert_eq!(windows, 0);
+    let service = BenchmarkService::new(Arc::new(SqliteBenchmarks::open(
+        f.settings.database.clone(),
+    )?));
+    let other = service.activity_sets(502, "2026-10-23".parse()?)?;
+    assert!(other.session.is_none() && other.import_synced_at.is_none());
+    db.execute(
+        "INSERT INTO activities VALUES ('600','Easy run','running','2026-10-23T08:00:00Z',600.0,NULL)",
+        [],
+    )?;
+    assert!(fails(&["sync-activity", "--id", "600"])?.contains("strength training"));
     Ok(())
 }

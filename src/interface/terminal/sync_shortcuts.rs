@@ -1,20 +1,14 @@
 //! src/interface/terminal/sync_shortcuts.rs adds explicitly confirmed date presets to normal menus.
-//! Existing custom-period and onboarding imports keep their original prompts and execution.
+//! Presets differ from custom periods only in how dates are chosen: both run the same
+//! activity and health imports. Sync everything reuses the same presets.
 
-use super::{App, Choice, Selection, Style, tty::Key};
-use crate::{
-    config::Settings,
-    health::Date,
-    history::ActivityPeriod,
-    interface::{garmin, health},
-    secrets::Secrets,
-};
+use super::{App, Choice, Selection};
+use crate::config::Settings;
 use anyhow::{Context, Result};
 use chrono::{Days, NaiveDate};
-use std::ops::ControlFlow;
 
-const PRESETS: [&str; 3] = ["Today", "Yesterday", "Last 7 days"];
-fn period(today: NaiveDate, index: usize) -> Result<(NaiveDate, NaiveDate)> {
+pub(super) const PRESETS: [&str; 3] = ["Today", "Yesterday", "Last 7 days"];
+pub(super) fn period(today: NaiveDate, index: usize) -> Result<(NaiveDate, NaiveDate)> {
     match index {
         0 => Ok((today, today)),
         1 => {
@@ -102,112 +96,11 @@ impl App {
         if !self.confirm(title, "Import this period from Garmin?", &details)? {
             return Ok(());
         }
-        let settings = Settings::load(&self.config)?;
-        let secrets = Secrets::load(self.env_file.as_deref())?;
-        let _reporting = self.report_rate_waits()?;
-        if self
-            .sync_progress(title, "Starting explicit import")?
-            .is_break()
-        {
-            return Ok(());
-        }
-        let result = if is_health {
-            self.health_preset(&settings, &secrets, start.into(), end.into())
+        if is_health {
+            self.import_health_range(start.into(), end.into())
         } else {
-            self.activity_preset(&settings, &secrets, start, end)
-        };
-        rustix::termios::tcflush(std::io::stdin(), rustix::termios::QueueSelector::IFlush)?;
-        self.view.result(title, &result?)?;
-        Ok(())
-    }
-    fn sync_progress(&mut self, title: &str, text: &str) -> Result<ControlFlow<()>> {
-        self.view.frame(
-            title,
-            &[(text.into(), Style::Plain)],
-            "Esc stops after this day/page",
-        )?;
-        Ok(if self.view.terminal.pending_key()? == Key::Escape {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        })
-    }
-    fn health_preset(
-        &mut self,
-        settings: &Settings,
-        secrets: &Secrets,
-        start: Date,
-        end: Date,
-    ) -> Result<String> {
-        let service = health::service(settings)?;
-        let mut saved = 0;
-        for (first, last) in start.windows(end, settings.health.max_days)? {
-            let flow = health::sync_window(&service, settings, secrets, first, last, |day| {
-                saved += 1;
-                self.sync_progress(
-                    "Import health",
-                    &format!("Saved {saved} days; last {}", day.date),
-                )
-            })
-            .with_context(|| {
-                format!("Health import failed after {saved} saved days; committed data retained")
-            })?;
-            if flow.is_break() {
-                return Ok(format!(
-                    "Stopped after {saved} saved days. Committed data retained."
-                ));
-            }
+            self.import_activity_period(title, start, end)
         }
-        Ok(format!(
-            "Health sync complete: {saved} days, all 8 datasets checked.\n{start} to {end}."
-        ))
-    }
-    fn activity_preset(
-        &mut self,
-        settings: &Settings,
-        secrets: &Secrets,
-        start: NaiveDate,
-        end: NaiveDate,
-    ) -> Result<String> {
-        let mut failure = None;
-        let mut saved = 0;
-        let result = garmin::sync_period(
-            settings,
-            secrets,
-            ActivityPeriod::new(start, end)?,
-            |progress| {
-                saved = progress.saved;
-                self.sync_progress(
-                    "Sync activities",
-                    &format!(
-                        "Saved {} activities in {} pages",
-                        progress.saved, progress.pages
-                    ),
-                )
-                .unwrap_or_else(|error| {
-                    failure = Some(error);
-                    ControlFlow::Break(())
-                })
-            },
-        );
-        if let Some(error) = failure {
-            return Err(error);
-        }
-        let result = result.with_context(|| {
-            format!(
-                "Activity import failed after {saved} saved activities; committed data retained"
-            )
-        })?;
-        Ok(format!(
-            "{}: {} activities, {} pages.\n{start} to {end}.",
-            if result.completed.is_some() {
-                "Import complete"
-            } else {
-                "Stopped; last complete sync unchanged"
-            },
-            result.progress.saved,
-            result.progress.pages
-        ))
     }
 }
 #[cfg(test)]

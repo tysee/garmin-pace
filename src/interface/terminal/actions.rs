@@ -13,6 +13,7 @@ pub(super) enum Action {
     Onboarding,
     Status,
     Activities,
+    FullSync,
     Sync,
     Health,
     Login,
@@ -25,6 +26,8 @@ pub(super) enum Action {
     ConfigCheck,
     ConfigShow,
     ConfigInit,
+    GarminNetwork,
+    InternetAccess,
     Initialize,
     McpUsers,
     Logout,
@@ -84,6 +87,13 @@ pub(super) const ACTIONS: &[Entry] = &[
         Action::Activities,
         "Activities",
         "Browse stored activities page by page",
+    ),
+    entry(
+        HISTORY,
+        "▼",
+        Action::FullSync,
+        "Sync everything",
+        "Every Garmin dataset for a period in one resumable run",
     ),
     entry(
         HISTORY,
@@ -168,6 +178,20 @@ pub(super) const ACTIONS: &[Entry] = &[
         Action::ConfigShow,
         "Show configuration",
         "Inspect non-secret settings",
+    ),
+    entry(
+        CONFIGURATION,
+        "⇄",
+        Action::GarminNetwork,
+        "Garmin network",
+        "Proxy and extra CA certificates for Garmin requests",
+    ),
+    entry(
+        CONFIGURATION,
+        "@",
+        Action::InternetAccess,
+        "Internet access (HTTPS)",
+        "Public HTTPS address for MCP and its certificate check",
     ),
     entry(
         CONFIGURATION,
@@ -268,6 +292,7 @@ impl Action {
             Self::Exit
             | Self::Onboarding
             | Self::Status
+            | Self::FullSync
             | Self::Activities
             | Self::Devices
             | Self::Coach
@@ -275,6 +300,8 @@ impl Action {
             | Self::Drafts
             | Self::Benchmarks
             | Self::Health
+            | Self::GarminNetwork
+            | Self::InternetAccess
             | Self::McpUsers => {
                 bail!("this action opens a menu")
             }

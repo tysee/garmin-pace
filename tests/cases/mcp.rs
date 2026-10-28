@@ -39,7 +39,7 @@ async fn stdio_discovers_tools_and_reads_persisted_history() -> Result<()> {
         assert!(stderr.is_none());
         let client = ().serve(transport).await?;
         let tools = client.list_all_tools().await?;
-        assert_eq!(tools.len(), 36);
+        assert_eq!(tools.len(), 37);
         for tool in &tools {
             // Only the granted Garmin tools reach the network; every other tool stays local.
             let metadata=serde_json::to_value(tool)?;
@@ -222,7 +222,7 @@ fn verify_http(client: &Client, base: &str, token: &str) -> Result<()> {
         token,
         json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
     )?;
-    assert_eq!(tools["result"]["tools"].as_array().map(Vec::len), Some(36));
+    assert_eq!(tools["result"]["tools"].as_array().map(Vec::len), Some(37));
     let status = rpc(
         client,
         base,

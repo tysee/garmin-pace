@@ -1,5 +1,6 @@
 //! src/config.rs loads the explicit TOML configuration and validates resource
-//! bounds before startup. It exposes Settings and creation of a starter config.
+//! bounds before startup. It exposes Settings, creation of a starter config and the in-place
+//! Garmin egress edit.
 
 use std::{
     fs,
@@ -12,6 +13,8 @@ mod auth;
 pub use auth::GarminAuthSettings;
 mod health;
 pub use health::HealthSettings;
+mod network;
+pub use network::{GarminNetwork, garmin_network, update_garmin_network};
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -100,6 +103,12 @@ pub struct GarminSettings {
     /// Longest single rate-limit wait Pace accepts from Garmin.
     #[serde(default = "default_rate_limit_max_wait_seconds")]
     pub rate_limit_max_wait_seconds: u64,
+    /// Explicit egress proxy without credentials; unset, HTTPS_PROXY/ALL_PROXY/NO_PROXY apply.
+    #[serde(default)]
+    pub proxy_url: Option<String>,
+    /// Extra PEM trust roots added to the platform store, e.g. an egress proxy's CA.
+    #[serde(default)]
+    pub extra_ca_file: Option<PathBuf>,
 }
 
 // Optional pacing tuning; profiles written before these settings existed keep loading.
@@ -167,6 +176,26 @@ impl GarminSettings {
             (1..=900).contains(&self.rate_limit_max_wait_seconds),
             "garmin.rate_limit_max_wait_seconds must be 1..=900"
         );
+        if let Some(proxy) = &self.proxy_url {
+            // A proxy URL with credentials is a secret; those stay in the environment.
+            let url = reqwest::Url::parse(proxy).context("invalid garmin.proxy_url")?;
+            ensure!(
+                matches!(url.scheme(), "http" | "https")
+                    && url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+                    && url.path() == "/",
+                "garmin.proxy_url must be http(s)://host[:port] without credentials, path or query"
+            );
+        }
+        ensure!(
+            self.extra_ca_file
+                .as_ref()
+                .is_none_or(|path| !path.as_os_str().is_empty()),
+            "garmin.extra_ca_file must not be empty"
+        );
         Ok(())
     }
 }
@@ -203,6 +232,14 @@ impl Settings {
                 .parent()
                 .context("configuration has no parent directory")?;
             settings.database.path = parent.join(&settings.database.path);
+        }
+        if let Some(path) = &settings.garmin.extra_ca_file
+            && path.is_relative()
+        {
+            let parent = absolute
+                .parent()
+                .context("configuration has no parent directory")?;
+            settings.garmin.extra_ca_file = Some(parent.join(path));
         }
         if settings.garmin_auth.session_path.is_relative() {
             let parent = absolute

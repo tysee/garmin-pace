@@ -41,6 +41,12 @@ request_interval_ms = 1000
 # never longer than rate_limit_max_wait_seconds per wait.
 rate_limit_retries = 3
 rate_limit_max_wait_seconds = 120
+# Agent sandboxes and corporate networks: Garmin traffic follows HTTPS_PROXY/ALL_PROXY/NO_PROXY
+# from the environment. To pin it for every launch, set a proxy here (no credentials; a proxy
+# that needs them stays in the environment) and/or add the proxy's PEM root certificate.
+# Check the route with `pace doctor`.
+# proxy_url = "http://proxy.internal:3128"
+# extra_ca_file = "egress-ca.pem"
 
 [garmin_auth]
 session_path = "/var/lib/garmin-pace/local/garmin-auth/session.json"

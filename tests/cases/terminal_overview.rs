@@ -146,7 +146,7 @@ fn date_preset_cancel_never_imports_and_confirm_imports_exact_dates() -> Result<
     ui.send(b"\r")?;
     ui.until("> Cancel")?;
     ui.send(b"\x1b[B\r")?;
-    ui.until("Import complete: 0 activities")?;
+    ui.until(&format!("No activities between {today} and {today}."))?;
     assert!(history.summary()?.last_sync.is_some());
     server.finish()?;
     ui.exit()
@@ -212,7 +212,7 @@ fn seven_day_health_preset_respects_small_windows_and_persists_real_snapshots() 
     ui.send(b"\r")?;
     ui.until("> Cancel")?;
     ui.send(b"\x1b[B\r")?;
-    ui.until("Health sync complete: 7 days")?;
+    ui.until("Health import complete: 7 days saved")?;
     server.finish()?;
     let db = rusqlite::Connection::open(&f.settings.database.path)?;
     let count: i64 = db.query_row("SELECT count(*) FROM health_days", [], |r| r.get(0))?;
@@ -280,6 +280,11 @@ fn every_action_explains_its_state_and_next_step_without_running_it() -> Result<
             "Use Sync activities",
         ),
         (
+            "Sync everything",
+            "Last full sync: Never run",
+            "Set the Personal API key",
+        ),
+        (
             "Sync activities",
             "Never synced",
             "Set the Personal API key",
@@ -315,6 +320,16 @@ fn every_action_explains_its_state_and_next_step_without_running_it() -> Result<
             "Run configuration validation",
         ),
         ("Show configuration", "Valid configuration", "Inspect paths"),
+        (
+            "Garmin network",
+            "Proxy: environment; extra CA: none",
+            "Change the proxy or CA file",
+        ),
+        (
+            "Internet access (HTTPS)",
+            "HTTPS not configured on this host",
+            "Choose a domain",
+        ),
         (
             "Create configuration",
             "overwrite refused",

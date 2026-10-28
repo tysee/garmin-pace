@@ -475,6 +475,39 @@ fn cli_sync_upserts_and_failed_import_preserves_timestamp_and_history() -> Resul
 }
 
 #[test]
+fn cli_reads_the_profile_key_file_without_env_file() -> Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.init()?;
+    let server = Server::start(vec![
+        ("POST", TOKEN_PATH, 200, TOKEN.into()),
+        (
+            "GET",
+            ACTIVITY_PATH,
+            200,
+            json!([activity("Profile key")]).to_string(),
+        ),
+    ])?;
+    configure(&fixture, &server.base)?;
+    let key_file = garmin_pace::secrets::profile_key_path(&fixture.settings.database.path)?;
+    garmin_pace::secrets::Secrets::save_personal_key(&key_file, KEY)?;
+    let output = fixture
+        .command()
+        .env_remove("GARMIN_PERSONAL_API_KEY")
+        .args(["garmin", "sync", "--limit", "2"])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout)?["saved_count"],
+        1
+    );
+    server.finish()
+}
+
+#[test]
 fn authentication_failure_and_rate_limit_stop_without_exposing_response() -> Result<()> {
     let fixture = Fixture::new()?;
     fixture.init()?;
