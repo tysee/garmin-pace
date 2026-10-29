@@ -548,3 +548,113 @@ fn menu_internet_access_names_the_system_install_off_a_service_host() -> Result<
     ui.until("> @ Internet access (HTTPS)")?;
     ui.exit()
 }
+
+#[test]
+fn coach_session_reschedule_reviews_confirms_and_shows_the_journal() -> Result<()> {
+    use crate::coach::{PLANS, WEEK, plans, schedule, workout};
+    let f = Fixture::new()?;
+    f.init()?;
+    let original = workout();
+    let entry = |date: &str| {
+        json!({"workoutScheduleId":99,"calendarDate":date,"ownerId":5,
+            "workout":{"workoutId":777,"workoutName":"Push Day","trainingPlanId":42},"associatedActivityId":null})
+        .to_string()
+    };
+    let g = Server::start(vec![
+        ("GET", PLANS, 200, plans()),
+        ("GET", WEEK, 200, schedule(&original)),
+        (
+            "GET",
+            "/workout-service/workout/777",
+            200,
+            original.to_string(),
+        ),
+        (
+            "GET",
+            "/workout-service/schedule/99",
+            200,
+            entry("2026-10-27"),
+        ),
+        ("PUT", "/workout-service/schedule/99", 200, "{}".into()),
+        (
+            "GET",
+            "/workout-service/schedule/99",
+            200,
+            entry("2026-11-02"),
+        ),
+    ])?;
+    configure_connect(&f, &g.base)?;
+    std::fs::write(
+        &f.config,
+        std::fs::read_to_string(&f.config)?
+            .replace("request_interval_ms = 1000", "request_interval_ms = 1"),
+    )?;
+    ensure!(
+        f.command()
+            .args([
+                "coach",
+                "sync",
+                "--start",
+                "2026-10-26",
+                "--end",
+                "2026-11-01"
+            ])
+            .output()?
+            .status
+            .success()
+    );
+    let mut ui = Session::start(&f, 100, 24, false)?;
+    ui.until("Search actions")?;
+    ui.search("Coach")?;
+    ui.until("Sync this week")?;
+    ui.search("Choose week")?;
+    ui.until("Garmin calendar date")?;
+    ui.send(b"2026-10-27\r")?;
+    ui.until("Coach week")?;
+    ui.search("Push Day")?;
+    ui.until("Workout steps")?;
+    ui.search("Reschedule")?;
+    ui.until("New Garmin calendar date")?;
+    ui.send(b"2026-11-02\r")?;
+    ui.until("Schedule ID: 99")?;
+    confirm(&mut ui)?;
+    ui.until("Reschedule result")?;
+    ui.until("Moved | schedule 99")?;
+    ui.send(b"\x1b")?;
+    // The search filter is still applied when the result closes; clear it first.
+    ui.until("> Reschedule")?;
+    ui.send(b"\x1b")?;
+    ui.until("Workout steps")?;
+    ui.search("Schedule details")?;
+    ui.until("Journaled moves")?;
+    ui.send(b"\x1b")?;
+    ui.until("> Schedule details")?;
+    ui.send(b"\x1b")?;
+    ui.until("Workout steps")?;
+    ui.send(b"\x1b")?;
+    ui.until("moved to 2026-11-02")?;
+    ui.exit()?;
+    let writes = g
+        .writes
+        .lock()
+        .map_err(|_| anyhow::anyhow!("write mutex"))?
+        .clone();
+    ensure!(writes.len() == 1 && writes[0]["calendarDate"] == "2026-11-02");
+    g.finish()?;
+    let shown = f
+        .command()
+        .args([
+            "coach",
+            "show",
+            "--start",
+            "2026-10-26",
+            "--end",
+            "2026-11-01",
+        ])
+        .output()?;
+    ensure!(shown.status.success());
+    let shown: serde_json::Value = serde_json::from_slice(&shown.stdout)?;
+    ensure!(shown["reschedules"][0]["state"] == "moved", "{shown}");
+    ensure!(shown["snapshot"]["sessions"][0]["date"] == "2026-10-27");
+    Ok(())
+}

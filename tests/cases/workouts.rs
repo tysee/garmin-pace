@@ -515,12 +515,12 @@ fn library_migration_preserves_existing_history_health_and_legacy_journal() -> R
     fixture.seed()?;
     crate::health::seed_health(&fixture, 1234.0)?;
     let db = rusqlite::Connection::open(&fixture.settings.database.path)?;
-    db.execute_batch("DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; DROP INDEX activities_sport_chronological; DROP TABLE benchmark_drafts; DROP TABLE strength_imports; DROP TABLE strength_sessions; DROP TABLE benchmark_catalog; DROP TABLE workout_deliveries; DROP TABLE workout_drafts; DROP TABLE workout_library; PRAGMA user_version=4;")?;
+    db.execute_batch("DROP TABLE coach_reschedules; DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; DROP INDEX activities_sport_chronological; DROP TABLE benchmark_drafts; DROP TABLE strength_imports; DROP TABLE strength_sessions; DROP TABLE benchmark_catalog; DROP TABLE workout_deliveries; DROP TABLE workout_drafts; DROP TABLE workout_library; PRAGMA user_version=4;")?;
     db.execute("INSERT INTO workout_attempts(name,state,workout_id,device_id) VALUES('legacy audit','verified',77,NULL)",[])?;
     fixture.init()?;
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
-        11
+        12
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM activities", [], |r| r

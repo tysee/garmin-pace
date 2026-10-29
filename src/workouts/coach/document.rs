@@ -1,7 +1,7 @@
 //! src/workouts/coach/document.rs defines the v1 Coach snapshot transport and storage contract.
 //! Conversion keeps Garmin DTOs outside the domain and returns local workout revisions for edits.
 
-use super::{Plan, Session, Snapshot, Window};
+use super::{Plan, Reschedule, Session, Snapshot, Window};
 use crate::workouts::{WorkoutError, document::LibraryDocument};
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +36,33 @@ pub struct SessionDocument {
     pub workout: LibraryDocument,
     pub associated_activity_id: Option<String>,
     pub estimated_seconds: Option<u32>,
+}
+/// One journaled move as CLI and MCP report it; dates are Garmin calendar dates.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RescheduleDocument {
+    pub id: u64,
+    pub schedule_id: u64,
+    pub workout_id: u64,
+    pub from: String,
+    pub to: String,
+    pub state: String,
+    pub requested_at: String,
+    pub mcp_request: Option<String>,
+}
+impl From<Reschedule> for RescheduleDocument {
+    fn from(r: Reschedule) -> Self {
+        Self {
+            id: r.id,
+            schedule_id: r.schedule_id,
+            workout_id: r.workout_id,
+            from: r.from.to_string(),
+            to: r.to.to_string(),
+            state: r.state.as_str().into(),
+            requested_at: r.requested_at,
+            mcp_request: r.request,
+        }
+    }
 }
 /// Validate the same public window contract for CLI and MCP.
 pub fn window(start: &str, end: &str) -> Result<Window, WorkoutError> {
@@ -106,16 +133,20 @@ impl TryFrom<SnapshotDocument> for Snapshot {
             sessions: s
                 .sessions
                 .into_iter()
-                .map(|s| {
-                    Ok(Session {
-                        schedule_id: s.schedule_id,
-                        date: window(&s.date, &s.date)?.start,
-                        workout: s.workout.try_into()?,
-                        associated_activity_id: s.associated_activity_id,
-                        estimated_seconds: s.estimated_seconds,
-                    })
-                })
+                .map(Session::try_from)
                 .collect::<Result<_, WorkoutError>>()?,
+        })
+    }
+}
+impl TryFrom<SessionDocument> for Session {
+    type Error = WorkoutError;
+    fn try_from(s: SessionDocument) -> Result<Self, Self::Error> {
+        Ok(Self {
+            schedule_id: s.schedule_id,
+            date: window(&s.date, &s.date)?.start,
+            workout: s.workout.try_into()?,
+            associated_activity_id: s.associated_activity_id,
+            estimated_seconds: s.estimated_seconds,
         })
     }
 }

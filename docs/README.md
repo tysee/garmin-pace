@@ -26,6 +26,7 @@ Dates and uppercase ID/revision placeholders must be replaced with your own valu
 | Create or revise a draft | Changes a local proposal only |
 | Save | Writes the reviewed revision to Garmin and verifies it by reading back |
 | Send | Requests delivery; acceptance does not confirm watch receipt |
+| Reschedule | Moves one Coach session in Garmin after journaling it, then reads the entry back |
 
 Pace runs no model internally. Your connected assistant proposes changes; Pace
 stores drafts, checks revisions and handles explicit Garmin operations. Agent

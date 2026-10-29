@@ -120,9 +120,10 @@ Review the proposals in **Coach → Review drafts** or **Workout drafts**. Appro
 specific revision in a separate instruction to save it. Pace checks the source
 revision, journals the write and verifies Garmin's response by reading it back.
 
-Coach remains the calendar interface. Pace edits individual workout definitions;
-it does not reschedule sessions, change Coach preferences or replace Garmin's
-adaptive algorithm. Nothing adjusts itself in the background. Read the complete
+Coach remains the calendar interface. Pace edits individual workout definitions and,
+on your explicit instruction, moves one scheduled session to another date; it does
+not shift the rest of a plan, change Coach preferences or replace Garmin's adaptive
+algorithm. Nothing adjusts itself in the background. Read the complete
 [Coach workflow](docs/coach.md) and [workout save/delivery flow](docs/workouts.md).
 
 ## Credentials and privacy

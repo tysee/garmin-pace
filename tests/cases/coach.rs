@@ -1,5 +1,6 @@
-//! tests/cases/coach.rs drives Coach import, evidence review and revision-checked updates
-//! through a running authenticated MCP server and real SQLite. Only external Garmin is scripted.
+//! tests/cases/coach.rs drives Coach import, evidence review, revision-checked updates and the
+//! journaled move of one session through a running authenticated MCP server, the CLI and real
+//! SQLite. Only external Garmin is scripted.
 
 use crate::{
     common::{Fixture, mcp::HttpMcp},
@@ -420,6 +421,342 @@ fn agent_edits_coach_percentage_workout_with_null_warmup_targets() -> Result<()>
     }
     drop(writes);
     http.stop()?;
+    g.finish()?;
+    Ok(())
+}
+
+// --- rescheduling one session ---
+
+const ENTRY: &str = "/workout-service/schedule/99";
+fn entry(date: &str) -> String {
+    json!({"workoutScheduleId":99,"calendarDate":date,"createdDate":"2026-10-01T10:00:00.0","ownerId":5,
+        "workout":{"workoutId":777,"workoutName":"Push Day","trainingPlanId":42,"estimatedDurationInSecs":3600},
+        "associatedActivityId":null})
+    .to_string()
+}
+fn import_week(http: &HttpMcp) -> Result<()> {
+    http.content(
+        "sync_coach_v1",
+        json!({"start":"2026-10-26","end":"2026-11-01","user_request":"Read my Coach week"}),
+    )?;
+    Ok(())
+}
+const WEEK_IMPORT: [(&str, &str, u16); 3] = [
+    ("GET", PLANS, 200),
+    ("GET", WEEK, 200),
+    ("GET", "/workout-service/workout/777", 200),
+];
+fn week_script(w: &Value) -> Vec<(&'static str, &'static str, u16, String)> {
+    let bodies = [plans(), schedule(w), w.to_string()];
+    WEEK_IMPORT
+        .iter()
+        .zip(bodies)
+        .map(|((m, p, s), body)| (*m, *p, *s, body))
+        .collect()
+}
+#[test]
+fn agent_moves_one_coach_session_and_the_journal_outlives_the_stale_snapshot() -> Result<()> {
+    let f = Fixture::new()?;
+    f.init()?;
+    let mut script = week_script(&workout());
+    script.extend([
+        ("GET", ENTRY, 200, entry("2026-10-27")),
+        ("PUT", ENTRY, 200, "{}".into()),
+        ("GET", ENTRY, 200, entry("2026-11-02")),
+    ]);
+    let g = Server::start(script)?;
+    configure_connect(&f, &g.base)?;
+    let http = HttpMcp::start(&f, 10)?;
+    let week = json!({"start":"2026-10-26","end":"2026-11-01"});
+    let request = "Move Push Day from 27 October to Monday 2 November";
+    // Nothing imported yet: the move is refused locally and Garmin sees no request.
+    let unknown = http.call(
+        "reschedule_coach_session_v1",
+        json!({"schedule_id":99,"date":"2026-11-02","user_request":request}),
+    )?;
+    assert!(
+        unknown["error"]["message"]
+            .as_str()
+            .context("error")?
+            .contains("imported Coach window"),
+        "{unknown}"
+    );
+    import_week(&http)?;
+    let same_date = http.call(
+        "reschedule_coach_session_v1",
+        json!({"schedule_id":99,"date":"2026-10-27","user_request":request}),
+    )?;
+    assert!(!same_date["error"].is_null(), "{same_date}");
+    let moved = http.content(
+        "reschedule_coach_session_v1",
+        json!({"schedule_id":99,"date":"2026-11-02","user_request":request}),
+    )?["reschedule"]
+        .clone();
+    assert_eq!(moved["state"], "moved");
+    assert_eq!(moved["from"], "2026-10-27");
+    assert_eq!(moved["to"], "2026-11-02");
+    assert_eq!(moved["workout_id"], 777);
+    assert_eq!(moved["mcp_request"], request);
+    let writes = g
+        .writes
+        .lock()
+        .map_err(|_| anyhow::anyhow!("write mutex"))?
+        .clone();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["calendarDate"], "2026-11-02");
+    assert_eq!(writes[0]["workout"], json!({"workoutId":777}));
+    assert_eq!(writes[0]["workoutScheduleId"], 99);
+    assert_eq!(writes[0]["createdDate"], "2026-10-01T10:00:00.0");
+    // The snapshot keeps the old date; the journal row is visible from both affected weeks.
+    let old_week = http.content("get_coach_v1", week)?;
+    assert_eq!(old_week["snapshot"]["sessions"][0]["date"], "2026-10-27");
+    assert_eq!(old_week["reschedules"][0]["state"], "moved");
+    assert_eq!(old_week["reschedules"][0]["schedule_id"], 99);
+    let new_week = http.content(
+        "get_coach_v1",
+        json!({"start":"2026-11-02","end":"2026-11-08"}),
+    )?;
+    assert_eq!(new_week["status"], "not_synced");
+    assert_eq!(new_week["reschedules"][0]["to"], "2026-11-02");
+    assert!(
+        http.content("get_capabilities_v1", json!({}))?["coach_support"]["rescheduling"]
+            .as_bool()
+            .context("capability")?
+    );
+    // The CLI reads the same journal and shows it beside the stale snapshot.
+    let shown = f
+        .command()
+        .args([
+            "coach",
+            "show",
+            "--start",
+            "2026-10-26",
+            "--end",
+            "2026-11-01",
+        ])
+        .output()?;
+    anyhow::ensure!(
+        shown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    let shown: Value = serde_json::from_slice(&shown.stdout)?;
+    assert_eq!(shown["reschedules"][0]["state"], "moved");
+    g.finish()?;
+    http.stop()
+}
+#[test]
+fn garmin_refusal_closes_the_move_and_a_remote_change_is_a_conflict() -> Result<()> {
+    let f = Fixture::new()?;
+    f.init()?;
+    let mut script = week_script(&workout());
+    script.extend([
+        ("GET", ENTRY, 200, entry("2026-10-27")),
+        (
+            "PUT",
+            ENTRY,
+            400,
+            json!({"message":"plan does not allow"}).to_string(),
+        ),
+        // Garmin already moved the entry elsewhere: no write may follow.
+        ("GET", ENTRY, 200, entry("2026-10-29")),
+    ]);
+    let g = Server::start(script)?;
+    configure_connect(&f, &g.base)?;
+    let http = HttpMcp::start(&f, 10)?;
+    import_week(&http)?;
+    let args =
+        json!({"schedule_id":99,"date":"2026-11-02","user_request":"Move my leg day to Monday"});
+    let refused = http.call("reschedule_coach_session_v1", args.clone())?;
+    assert_eq!(refused["error"]["data"]["outcome"], "rejected");
+    assert_eq!(refused["error"]["data"]["garmin_status"], 400);
+    let journal = http.content(
+        "get_coach_v1",
+        json!({"start":"2026-10-26","end":"2026-11-01"}),
+    )?["reschedules"]
+        .clone();
+    assert_eq!(journal.as_array().map(Vec::len), Some(1));
+    assert_eq!(journal[0]["state"], "not_applied");
+    // Nothing is pending, so a second attempt is accepted locally and compared remotely.
+    let conflict = http.call("reschedule_coach_session_v1", args)?;
+    assert!(
+        conflict["error"]["message"]
+            .as_str()
+            .context("conflict")?
+            .contains("no longer matches"),
+        "{conflict}"
+    );
+    let journal = http.content(
+        "get_coach_v1",
+        json!({"start":"2026-10-26","end":"2026-11-01"}),
+    )?["reschedules"]
+        .clone();
+    assert_eq!(journal.as_array().map(Vec::len), Some(2));
+    assert_eq!(journal[0]["state"], "not_applied");
+    // Only the refused PUT reached Garmin; the conflict sent nothing.
+    assert_eq!(
+        g.writes
+            .lock()
+            .map_err(|_| anyhow::anyhow!("write mutex"))?
+            .len(),
+        1
+    );
+    g.finish()?;
+    http.stop()
+}
+#[test]
+fn uncertain_move_stays_pending_until_reconcile_or_cli_clear() -> Result<()> {
+    let f = Fixture::new()?;
+    f.init()?;
+    let mut script = week_script(&workout());
+    script.extend([
+        ("GET", ENTRY, 200, entry("2026-10-27")),
+        ("PUT", ENTRY, 503, "".into()),
+        ("GET", ENTRY, 200, entry("2026-10-28")),
+        ("GET", ENTRY, 200, entry("2026-10-28")),
+        ("GET", ENTRY, 200, entry("2026-11-02")),
+    ]);
+    let g = Server::start(script)?;
+    configure_connect(&f, &g.base)?;
+    let http = HttpMcp::start(&f, 10)?;
+    import_week(&http)?;
+    let request = "Move Push Day to 2 November";
+    let uncertain = http.call(
+        "reschedule_coach_session_v1",
+        json!({"schedule_id":99,"date":"2026-11-02","user_request":request}),
+    )?;
+    assert_eq!(uncertain["error"]["data"]["outcome"], "uncertain");
+    let pending = http.content(
+        "get_coach_v1",
+        json!({"start":"2026-10-26","end":"2026-11-01"}),
+    )?["reschedules"]
+        .clone();
+    assert_eq!(pending[0]["state"], "moving");
+    // A second move of the same session is refused locally while one is unresolved.
+    let blocked = http.call(
+        "reschedule_coach_session_v1",
+        json!({"schedule_id":99,"date":"2026-11-03","user_request":request}),
+    )?;
+    assert!(
+        blocked["error"]["message"]
+            .as_str()
+            .context("blocked")?
+            .contains("unresolved"),
+        "{blocked}"
+    );
+    // Garmin shows a third date: reconcile keeps the move open for the user.
+    let still_open = http.call(
+        "reconcile_coach_reschedule_v1",
+        json!({"schedule_id":99,"user_request":request}),
+    )?;
+    assert_eq!(still_open["error"]["data"]["outcome"], "uncertain");
+    // The CLI reconcile reads the same third date and leaves the row open as well.
+    let cli_open = f
+        .command()
+        .args(["coach", "reconcile-reschedule", "--schedule-id", "99"])
+        .output()?;
+    assert!(!cli_open.status.success());
+    assert!(
+        String::from_utf8_lossy(&cli_open.stderr).contains("unresolved"),
+        "{}",
+        String::from_utf8_lossy(&cli_open.stderr)
+    );
+    assert_eq!(
+        http.content(
+            "get_coach_v1",
+            json!({"start":"2026-10-26","end":"2026-11-01"})
+        )?["reschedules"][0]["state"],
+        "moving"
+    );
+    // Then the entry appears on the requested date: reconcile settles it as moved.
+    let settled = http.content(
+        "reconcile_coach_reschedule_v1",
+        json!({"schedule_id":99,"user_request":request}),
+    )?;
+    assert_eq!(settled["reschedule"]["state"], "moved");
+    assert!(
+        !http.call(
+            "reconcile_coach_reschedule_v1",
+            json!({"schedule_id":99,"user_request":request})
+        )?["error"]
+            .is_null()
+    );
+    // Clearing applies only to an unresolved move and never contacts Garmin.
+    let cleared = f
+        .command()
+        .args(["coach", "clear-reschedule", "--schedule-id", "99"])
+        .output()?;
+    assert!(!cleared.status.success());
+    // The single PUT that Garmin answered with 503 is the only write; nothing was retried.
+    assert_eq!(
+        g.writes
+            .lock()
+            .map_err(|_| anyhow::anyhow!("write mutex"))?
+            .len(),
+        1
+    );
+    g.finish()?;
+    http.stop()
+}
+#[test]
+fn cli_moves_a_session_and_reports_a_missing_entry_without_retrying() -> Result<()> {
+    let f = Fixture::new()?;
+    f.init()?;
+    let mut script = week_script(&workout());
+    script.extend([
+        ("GET", ENTRY, 200, entry("2026-10-27")),
+        ("PUT", ENTRY, 200, "{}".into()),
+        ("GET", ENTRY, 404, json!({"message":"gone"}).to_string()),
+    ]);
+    let g = Server::start(script)?;
+    configure_connect(&f, &g.base)?;
+    std::fs::write(
+        &f.config,
+        std::fs::read_to_string(&f.config)?
+            .replace("request_interval_ms = 1000", "request_interval_ms = 1"),
+    )?;
+    let imported = f
+        .command()
+        .args([
+            "coach",
+            "sync",
+            "--start",
+            "2026-10-26",
+            "--end",
+            "2026-11-01",
+        ])
+        .output()?;
+    anyhow::ensure!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let moved = f
+        .command()
+        .args([
+            "coach",
+            "reschedule",
+            "--schedule-id",
+            "99",
+            "--date",
+            "2026-11-02",
+        ])
+        .output()?;
+    anyhow::ensure!(
+        moved.status.success(),
+        "{}",
+        String::from_utf8_lossy(&moved.stderr)
+    );
+    let moved: Value = serde_json::from_slice(&moved.stdout)?;
+    assert_eq!(moved["reschedule"]["state"], "missing");
+    assert!(moved["reschedule"]["mcp_request"].is_null());
+    let writes = g
+        .writes
+        .lock()
+        .map_err(|_| anyhow::anyhow!("write mutex"))?
+        .clone();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["calendarDate"], "2026-11-02");
     g.finish()?;
     Ok(())
 }

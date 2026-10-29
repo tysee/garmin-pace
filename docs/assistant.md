@@ -24,7 +24,8 @@ claude mcp add --transport stdio garmin-pace -- \
 
 Rebuild with `mise exec -- cargo build --release --locked --bin pace` after source changes
 and reconnect the server in your client. Use the same config for sync and MCP so new imports are visible.
-The current catalogue has 37 tools, including `get_coach_v1` and `sync_coach_v1`.
+The current catalogue has 39 tools, including `get_coach_v1`, `sync_coach_v1` and
+`reschedule_coach_session_v1`.
 If an existing Codex connection still shows 34, reconnect `garmin-pace` in the
 client's MCP settings to reload its tool definitions. Verify both Coach tools are
 available; `get_capabilities_v1` alone checks the running server, not the client's
@@ -61,8 +62,9 @@ These calls share the Garmin concurrency gate with writes and may outlive an HTT
 timeout. Check capabilities for a busy server and read local snapshots before
 continuing; never repeat an uncertain save or delivery. For a lost create response,
 sync the library, inspect the matching definition and use its ID for reconciliation.
-Pending-delivery closure and pending-save abandonment remain explicit CLI actions
-after the user checks Garmin; the agent cannot confirm physical watch receipt.
+Pending-delivery closure, pending-save abandonment and clearing an unresolved Coach
+move remain explicit CLI actions after the user checks Garmin; the agent cannot confirm
+physical watch receipt.
 
 stdio and HTTP expose the same tools. The original read-only tools remain available:
 
@@ -165,11 +167,13 @@ pace users allow-garmin-writes owner   # undo with: pace users deny-garmin-write
 
 Over local stdio, where there is no registry, set `stdio_garmin_writes = true` under
 `[runtime]` in that profile's config instead. The grant enables the explicit
-sync/refresh tools described here, including `sync_coach_v1`, and these six Garmin operations:
+sync/refresh tools described here, including `sync_coach_v1`, and these eight Garmin operations:
 `save_workout_draft_to_garmin_v1`, `reconcile_workout_draft_v1`,
 `send_workout_to_device_v1`, `list_garmin_devices_v1`,
-`save_benchmark_draft_to_garmin_v1` and `reconcile_benchmark_draft_v1`. Without the
-grant they answer "not enabled" and contact nothing.
+`save_benchmark_draft_to_garmin_v1`, `reconcile_benchmark_draft_v1`,
+`reschedule_coach_session_v1` and `reconcile_coach_reschedule_v1`. Without the
+grant they answer "not enabled" and contact nothing. A Coach move takes the schedule
+ID from `get_coach_v1` and one new Garmin calendar date; see [Coach](coach.md).
 
 Every write takes a `user_request`: your instruction, quoted by the assistant
 (1 to 1000 bytes, no control characters). Pace cannot check that you really said

@@ -54,7 +54,7 @@ impl HistoryMcp {
             let _permit = permit;
             let history = profile.history.summary().map_err(history_error)?;
             let health = profile.health.summary().map_err(super::mcp::health_error)?;
-            Ok(json!({"contract_version":1,"toolset_version":"2026-10-28-interface-parity.1","coach_support":{"window_days":7,"relative_load":true,"minimum_repetitions":true,"adaptation":"reviewed_drafts","rescheduling":false},"garmin_access":allowed,
+            Ok(json!({"contract_version":1,"toolset_version":"2026-10-29-coach-reschedule.1","coach_support":{"window_days":7,"relative_load":true,"minimum_repetitions":true,"adaptation":"reviewed_drafts","rescheduling":true,"rescheduling_scope":"single_session"},"garmin_access":allowed,
                 "garmin_operation_running":busy,"history":StatusResponse::from(history),
                 "health":{"day_count":health.day_count,"latest":health.latest.map(|d|d.to_string())},
                 "watch_receipt_supported":false,"sync_credentials":"profile_private_file"}))

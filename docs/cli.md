@@ -113,8 +113,15 @@ stored samples page by page. Everything there reads the local database only.
 ```sh
 pace workout list --standalone
 pace coach show --start 2026-10-26 --end 2026-11-01
+pace coach reschedule --schedule-id SCHEDULE_ID --date 2026-11-02
+pace coach reconcile-reschedule --schedule-id SCHEDULE_ID
+pace coach clear-reschedule --schedule-id SCHEDULE_ID
 pace workout drafts
 ```
+
+`coach reschedule` writes to Garmin immediately after journaling the move; the two
+follow-ups only read Garmin or close a journal row you checked yourself. See
+[Move one session](coach.md#move-one-session-to-another-date).
 
 Without `--standalone`, `workout list` includes imported Coach definitions too.
 The Coach menu opens the current UTC week; choose another date if your Garmin

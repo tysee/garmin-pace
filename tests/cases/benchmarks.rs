@@ -567,11 +567,11 @@ fn benchmark_migration_preserves_existing_workout_drafts() -> Result<()> {
     crate::workouts::seed_draft(&f)?;
     let db = rusqlite::Connection::open(&f.settings.database.path)?;
     // A real schema-5 database has neither the benchmark tables nor the MCP request journal.
-    db.execute_batch("DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; DROP TABLE benchmark_drafts; DROP TABLE strength_imports; DROP TABLE strength_sessions; DROP TABLE benchmark_catalog; ALTER TABLE workout_drafts DROP COLUMN mcp_request; ALTER TABLE workout_deliveries DROP COLUMN mcp_request; PRAGMA user_version=5;")?;
+    db.execute_batch("DROP TABLE coach_reschedules; DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; DROP TABLE benchmark_drafts; DROP TABLE strength_imports; DROP TABLE strength_sessions; DROP TABLE benchmark_catalog; ALTER TABLE workout_drafts DROP COLUMN mcp_request; ALTER TABLE workout_deliveries DROP COLUMN mcp_request; PRAGMA user_version=5;")?;
     f.init()?;
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
-        11
+        12
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM workout_drafts", [], |r| r

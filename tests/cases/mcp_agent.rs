@@ -173,7 +173,7 @@ fn history_search_filters_pages_and_uses_sport_date_index() -> Result<()> {
     let plan:String=db.query_row("EXPLAIN QUERY PLAN SELECT garmin_id FROM activities WHERE sport=?1 AND started_at>=?2 AND started_at<?3 ORDER BY started_at DESC,garmin_id DESC LIMIT ?4 OFFSET ?5",rusqlite::params!["running","2026-10-01T00:00:00","2026-10-03T00:00:00",1,0],|r|r.get(3))?;
     ensure!(plan.contains("activities_sport_chronological"), "{plan}");
     // Reproduce a real v7 database and prove the forward migration preserves rows.
-    db.execute_batch("DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; PRAGMA user_version=7;")?;
+    db.execute_batch("DROP TABLE coach_reschedules; DROP TABLE sync_run_steps; DROP TABLE sync_run_windows; DROP TABLE sync_runs; DROP INDEX workout_library_standalone; DROP TABLE coach_snapshots; ALTER TABLE workout_drafts DROP COLUMN explanation; DROP INDEX activities_sport_chronological; PRAGMA user_version=7;")?;
     assert!(SqliteHistory::open(fixture.settings.database.clone()).is_err());
     fixture.init()?;
     assert_eq!(service.summary()?.activity_count, 3);

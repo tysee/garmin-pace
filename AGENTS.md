@@ -79,8 +79,17 @@ tools through mise. Do not install tools or dependencies without authorization.
   author; never performs autonomous adaptation. Source-linked Coach drafts require
   an explanation. Relative strength load and minimum repetitions are preserved;
   load modes are exclusive. Saves retain the plan identity and verify it on read-back.
-  Calendar rescheduling, Coach preferences and the adaptive algorithm remain outside
-  this scope. Repeated schedule entries may share a workout definition. The terminal
+  One scheduled session can be moved to another Garmin calendar date by its schedule
+  ID: the session must exist in an imported local window, the move is journaled in
+  `coach_reschedules` before Garmin is contacted, the adapter reads the calendar entry,
+  refuses a changed date or workout (conflict), PUTs only the new date and workout ID,
+  and reads the entry back. HTTP 4xx closes the row as `not_applied`; an uncertain outcome
+  stays `moving` until an explicit reconcile (GET only) or the CLI/menu clear; an entry
+  Garmin no longer returns is recorded as `missing`. Garmin decides which plans allow a
+  move and how far; Pace enforces no date policy beyond distinct valid dates. Shifting
+  the rest of a plan, Coach preferences and the adaptive algorithm remain outside this
+  scope. A moved session leaves both affected local windows stale until they are synced
+  again. Repeated schedule entries may share a workout definition. The terminal
   separates standalone Workouts from Coach weeks; navigation is local and only
   explicit Sync contacts Garmin. The initial week is labelled as UTC; users can
   choose the dates in Garmin calendar terms. The standalone library filter has a
@@ -151,7 +160,8 @@ tools through mise. Do not install tools or dependencies without authorization.
 - SQLite failure is critical and explicit. Garmin failures preserve
   local history with an explicit last-successful-sync timestamp. Sync is a bounded
   one-shot operation with no background polling. MCP contacts Garmin only through the
-  granted tools (sync, refresh, save, reconcile, send, device list) under the same authenticated
+  granted tools (sync, refresh, save, reconcile, send, device list, Coach reschedule and its
+  reconcile) under the same authenticated
   profile: one Garmin operation per process at a time, on a dedicated thread outside the
   blocking pool that outlives the HTTP request timeout, never automatically and never on
   retry; the draft state and local delivery journal are the source of truth after a timeout.

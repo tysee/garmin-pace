@@ -16,8 +16,10 @@ use serde_json::{Value, json};
 use std::{fs, net::TcpListener, process::Stdio, sync::Arc, time::Duration};
 
 /// Tools that may contact Garmin; everything else stays local.
-pub(super) const GARMIN_TOOLS: [&str; 13] = [
+pub(super) const GARMIN_TOOLS: [&str; 15] = [
     "sync_coach_v1",
+    "reschedule_coach_session_v1",
+    "reconcile_coach_reschedule_v1",
     "sync_activities_v1",
     "sync_health_v1",
     "sync_strength_v1",
